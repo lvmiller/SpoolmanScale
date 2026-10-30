@@ -11,3 +11,7 @@ void showWebScreen();
 // freed on the way back to the main screen.
 void webPinScreenHide();
 void webPinScreenClose();
+
+// The certificate fingerprint overlay follows the same navigation lifecycle.
+void webCertScreenHide();
+void webCertScreenClose();

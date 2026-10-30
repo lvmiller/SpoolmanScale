@@ -106,6 +106,7 @@ void hideAllOverlays() {
   hideMoreInfoOverlays();
   hideAmsViewOverlays();
   webPinScreenHide();
+  webCertScreenHide();
   hideLanguageScreen();
   // The dialogs that used to be locals of whichever callback built them, so
   // nothing outside could reach them and a navigation left them standing over
@@ -153,6 +154,7 @@ static void deleteSecondaryScreens() {
   if (scr_backend)  { lv_obj_del(scr_backend);  scr_backend  = nullptr; }
   if (scr_web)      { lv_obj_del(scr_web);      scr_web      = nullptr; }
   webPinScreenClose();
+  webCertScreenClose();
   if (scr_timezone) { lv_obj_del(scr_timezone); scr_timezone = nullptr; }
   closeLanguageScreen();
 }
