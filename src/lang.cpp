@@ -92,12 +92,12 @@ const char* const STRINGS[][3] = {
   { "Webserver",          "Web server",        "Serveur web" },  // STR_WEB_SERVER
   { "Wartung",            "Maintenance",       "Maintenance" },  // STR_WEB_MAINT
   { "Einstellungen",      "Settings",          "Réglages" },  // STR_WEB_CONFIG
-  { "Aus: Port 80 antwortet nicht.",
-    "Off: nothing answers on port 80.",
+  { "Aus: Im Browser nicht erreichbar.",
+    "Off: not reachable from a browser.",
     "Désactivé : inaccessible depuis le navigateur." },  // STR_WEB_SERVER_HINT
-  { "Schaltet die Weboberfläche im Netz an und aus. Ausgeschaltet antwortet Port 80 nicht mehr - außer FilaMan hat ein Geräte-Token hinterlegt, dann bleibt allein dessen Tag-Auslöser erreichbar.",
-    "Turns the web interface on and off across the network. Switched off, port 80 stops answering - unless FilaMan holds a device token, in which case only its tag trigger stays reachable.",
-    "Active ou désactive l'interface web sur le réseau. Désactivée, elle ne répond plus (port 80) - sauf avec FilaMan, si la balance y est associée : seules les lectures et écritures de tag demandées par FilaMan restent alors possibles." },  // STR_WEB_SERVER_INFO
+  { "Schaltet die Weboberfläche im Netz an und aus. Sie antwortet nur über https, mit einem Zertifikat, das die Waage selbst erzeugt hat: Der Browser warnt einmal, und Zertifikat weiter unten zeigt, was vor dem Annehmen zu vergleichen ist. Ausgeschaltet antwortet nichts mehr - außer FilaMan hat ein Geräte-Token hinterlegt, dann bleibt allein dessen Tag-Auslöser auf Port 80 erreichbar.",
+    "Turns the web interface on and off across the network. It answers over https only, with a certificate the scale made for itself: the browser warns once, and Certificate below shows what to compare before accepting. Switched off, nothing answers - unless FilaMan holds a device token, in which case only its tag trigger stays reachable on port 80.",
+    "Active ou désactive l'interface web sur le réseau. Elle ne répond qu'en https, avec un certificat créé par la balance elle-même : le navigateur avertit une fois, et Certificat plus bas indique quoi comparer avant d'accepter. Désactivée, plus rien ne répond - sauf avec FilaMan, si la balance y est associée : seul son déclencheur de tag reste alors joignable sur le port 80." },  // STR_WEB_SERVER_INFO
   { "Liefert Firmware-Upload, Logs, Neustart und das Tag-Schreiben. Standardmäßig aus: schreibt Firmware und NFC-Tags, ohne Passwort.",
     "Serves firmware upload, logs, restart and tag writing. Off by default: these write firmware and NFC tags, with no password.",
     "Rend accessibles dans le navigateur l'envoi de firmware, les journaux, le redémarrage et l'écriture de tags. Désactivé par défaut : sans mot de passe, tout appareil du réseau pourrait installer un firmware et écrire des tags NFC." },  // STR_WEB_MAINT_HINT
@@ -2380,6 +2380,16 @@ const char* const STRINGS[][3] = {
     "After 5 wrong tries the scale takes only one every 5 minutes. "
     "Saving the password here again lifts that at once.",
     "Protège les sections Réglages et Maintenance de l'interface web : backend, réglages, tags, journaux et firmware. Sans mot de passe, tout appareil du réseau peut utiliser ces sections dès qu'elles sont activées - y compris installer un firmware.\n\n6 à 8 chiffres. Le navigateur vous le demandera ; le nom d'utilisateur est ignoré. Validez sans rien saisir pour supprimer le mot de passe.\n\nAprès 5 essais erronés, la balance n'en accepte plus qu'un toutes les 5 minutes. L'enregistrer à nouveau ici lève aussitôt ce blocage." },  // STR_WEB_PASS_INFO
+  { "Zertifikat", "Certificate", "Certificat" },  // STR_WEB_CERT
+  { "Fingerabdruck für die Browser-Warnung",
+    "Fingerprint for the browser warning",
+    "Empreinte pour l'alerte du navigateur" },  // STR_WEB_CERT_SUB
+  { "Entsteht, sobald WLAN verbunden ist",
+    "Created once WiFi is connected",
+    "Créé dès que le WiFi est connecté" },  // STR_WEB_CERT_NONE
+  { "SHA-256-Fingerabdruck dieser Waage. Er steht auch in den Zertifikatdetails der Browser-Warnung. Nur annehmen, wenn jedes Paar übereinstimmt.",
+    "This scale's SHA-256 certificate fingerprint. Find it in the certificate details of the browser warning. Accept only if every pair matches.",
+    "Empreinte SHA-256 de cette balance. Voir les détails du certificat dans l'alerte du navigateur. N'acceptez que si chaque paire correspond." },  // STR_WEB_CERT_HINT
   { "Web-Passwort", "Web password", "Mot de passe web" },  // STR_WEB_PASS_TITLE
   { "6 bis 8 Ziffern. Leer speichern entfernt das Passwort.",
     "6 to 8 digits. Save empty to remove the password.",
@@ -2406,6 +2416,9 @@ const char* const STRINGS[][3] = {
   { "Anfrage von einer fremden Seite abgelehnt.",
     "Request from a foreign page refused.",
     "Requête venue d'une page étrangère refusée." },  // STR_W_BAD_ORIGIN
+  { "Die Waage nimmt das nur über https an. Ihre Adresse mit https:// öffnen.",
+    "The scale only accepts this over https. Open its address with https://.",
+    "La balance n'accepte cela qu'en https. Ouvrez son adresse avec https://." },  // STR_W_HTTPS_ONLY
   { "%d Spulen", "%d spools", "%d bobines" },  // STR_SPOOLS_COUNT
   { "Beide Tags gehören jetzt zu dieser Spule.",
     "Both tags now belong to this spool.",
@@ -3610,9 +3623,9 @@ const char* const STRINGS[][3] = {
   { "Unter einer anderen Adresse (Name statt IP, Proxy) zeigt der Browser die Waage dort nicht an.",
     "Under any other address (a name instead of the IP, a proxy) the browser does not show the scale there.",
     "Sous une autre adresse (un nom au lieu de l'IP, un proxy), le navigateur n'y affiche pas la balance." },  // STR_W_EMBED_NOTE
-  { "Oben steht eine https-Adresse. Eine https-Seite darf die Waage, die nur http spricht, nicht einbetten. Zum Einbetten das Backend oben mit http eintragen und so öffnen.",
-    "The address above is https. An https page may not embed the scale, which only speaks http. To embed it, enter the backend above with http and open it that way.",
-    "L'adresse ci-dessus est en https. Une page https ne peut pas intégrer la balance, qui ne parle que http. Pour l'intégrer, saisissez le backend ci-dessus en http et ouvrez-le ainsi." },  // STR_W_EMBED_HTTPS
+  { "Die Waage nutzt ein eigenes Zertifikat. Ihre Adresse einmal direkt in diesem Browser öffnen und das Zertifikat annehmen, sonst bleibt der Rahmen leer.",
+    "The scale uses its own certificate. Open its address once directly in this browser and accept the certificate, otherwise the frame stays empty.",
+    "La balance utilise son propre certificat. Ouvrez une fois son adresse directement dans ce navigateur et acceptez le certificat, sinon le cadre reste vide." },  // STR_W_EMBED_CERT
   { "Öffnen",
     "Open",
     "Ouvrir" },  // STR_W_OPEN

@@ -207,6 +207,12 @@ else
   ok "web palettes: ${sum#palettes: }"
 fi
 
+# 14. The management server speaks TLS through WebServer's write hooks.
+#     Chunked replies, streamFile() and the chunk API write past them to the
+#     bare socket, which on the https server is not connected.
+hits=$(grep -rnE 'CONTENT_LENGTH_UNKNOWN|\bstreamFile\s*\(|chunkResponse(Begin|End)\s*\(|\bchunkWrite\s*\(' src/web | grep -vE '^[^:]+:[0-9]+:\s*//' || true)
+if [ -n "$hits" ]; then bad "reply path that bypasses the TLS write hooks:"; echo "$hits" | sed 's/^/        /'; else ok "no reply past the TLS write hooks"; fi
+
 echo
 if [ "$fail" -ne 0 ]; then echo "check.sh: FAILED"; exit 1; fi
 if [ "$warn" -ne 0 ]; then echo "check.sh: passed with warnings"; else echo "check.sh: all checks passed"; fi

@@ -15,6 +15,7 @@
 #include "ui_common.h"
 #include "web/web_access.h"
 #include "web/web_server.h"
+#include "web/web_tls_identity.h"
 #include "theme.h"
 
 lv_obj_t *scr_web = nullptr;
@@ -24,11 +25,46 @@ static lv_obj_t *s_pin_scr = nullptr;
 static lv_obj_t *s_pin_lbl = nullptr;
 static lv_obj_t *s_pin_hint = nullptr;
 static char      s_pin[WEB_PASS_MAX + 1] = "";
+static lv_obj_t *s_cert_scr = nullptr;
 
 void webPinScreenHide()  { if (s_pin_scr) lv_obj_add_flag(s_pin_scr, LV_OBJ_FLAG_HIDDEN); }
 void webPinScreenClose() { releaseScreen(&s_pin_scr); s_pin_lbl = nullptr; s_pin_hint = nullptr; }
+void webCertScreenHide()  { if (s_cert_scr) lv_obj_add_flag(s_cert_scr, LV_OBJ_FLAG_HIDDEN); }
+void webCertScreenClose() { releaseScreen(&s_cert_scr); }
 
 static void rebuild();
+
+static void buildWebCertScreen() {
+  webCertScreenClose();
+  s_cert_scr = buildOverlayScreen();
+  char title[40];
+  copyT(title, sizeof(title), STR_WEB_CERT);
+  buildSubHeader(s_cert_scr, title, [](lv_event_t *e) {
+    logSD("BTN: Back -> Web");
+    webCertScreenClose();
+    rebuild();
+  });
+
+  char hb[256];
+  copyT(hb, sizeof(hb), STR_WEB_CERT_HINT);
+  lv_obj_t *hint = lv_label_create(s_cert_scr);
+  lv_label_set_text(hint, hb);
+  lv_obj_set_style_text_font(hint, &lv_font_montserrat_ext_14, 0);
+  lv_obj_set_style_text_color(hint, lv_color_hex(UI_COL_CAPTION), 0);
+  lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(hint, 440);
+  lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 66);
+
+  char fp[96];
+  webTlsFingerprint(fp, sizeof(fp), 8);
+  lv_obj_t *fingerprint = lv_label_create(s_cert_scr);
+  lv_label_set_text(fingerprint, fp);
+  lv_obj_set_style_text_font(fingerprint, &lv_font_montserrat_ext_20, 0);
+  lv_obj_set_style_text_color(fingerprint, lv_color_hex(UI_COL_ACCENT), 0);
+  lv_obj_set_style_text_align(fingerprint, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_align(fingerprint, LV_ALIGN_TOP_MID, 0, 150);
+}
 
 static void pinRefresh() {
   if (!s_pin_lbl) return;
@@ -254,6 +290,19 @@ void buildWebScreen() {
       hideAllOverlays();
       if (s_pin_scr) lv_obj_clear_flag(s_pin_scr, LV_OBJ_FLAG_HIDDEN);
     }, LV_EVENT_CLICKED, NULL);
+  }
+  {
+    const bool have = webTlsIdentityEnsure();
+    char title[40], subtitle[56];
+    copyT(title, sizeof(title), STR_WEB_CERT);
+    copyT(subtitle, sizeof(subtitle), have ? STR_WEB_CERT_SUB : STR_WEB_CERT_NONE);
+    lv_obj_t *btn = makeListBtn(list, LV_SYMBOL_EYE_OPEN, title, subtitle, false, nullptr);
+    if (have) lv_obj_add_event_cb(btn, [](lv_event_t *e) {
+      logSD("BTN: Web -> certificate");
+      buildWebCertScreen();
+      hideAllOverlays();
+      if (s_cert_scr) lv_obj_clear_flag(s_cert_scr, LV_OBJ_FLAG_HIDDEN);
+    }, LV_EVENT_CLICKED, nullptr);
   }
 }
 

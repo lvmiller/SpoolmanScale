@@ -9,7 +9,6 @@
 #include "web/pages/page_backend_embed.h"
 
 #include <stdio.h>
-#include <strings.h>
 
 #include "services/backend.h"
 #include "services/device_name.h"
@@ -81,7 +80,7 @@ static String stepsBambuddy() {
   h += addressLine(url, false);
   if (alt[0]) {
     char alt_url[64];
-    snprintf(alt_url, sizeof(alt_url), "http://%s", alt);
+    snprintf(alt_url, sizeof(alt_url), "https://%s", alt);
     h += addressLine(alt_url, false);
   }
   h += F("<p class='hint'>");
@@ -90,10 +89,9 @@ static String stepsBambuddy() {
   return h;
 }
 
-// Folding is remembered per browser, so whoever has set it up once can put
-// it away. Copying falls back to execCommand: the scale is plain http, where
-// navigator.clipboard does not exist. When that fails too, the button says
-// so for a moment instead of staying mute.
+// Folding is remembered per browser. HTTPS provides a secure context for
+// navigator.clipboard; execCommand remains the fallback where unavailable.
+// A failed copy is reported on the button rather than silently ignored.
 static String script() {
   String h = F("<script>(function(){var EM={copy:");
   h += jsStr(T(STR_W_COPY));
@@ -130,20 +128,14 @@ String backendEmbedCard() {
   h += F("</h2></summary><p class='hint'>");
   h += T(backendIsFilaMan() ? STR_W_EMBED_FM_INTRO : STR_W_EMBED_BB_INTRO);
   h += F("</p>");
-  // An https page may not frame the http scale, so with an https address
-  // stored there is no step that would work, only the reason.
-  if (strncasecmp(base, "https://", 8) == 0) {
-    h += F("<p class='note'>");
-    h += T(STR_W_EMBED_HTTPS);
-    h += F("</p>");
-  } else {
-    h += F("<ol class='steps'>");
-    h += backendIsFilaMan() ? stepsFilaman() : stepsBambuddy();
-    h += stepOpenBackend();
-    h += F("</ol><p class='note'>");
-    h += T(STR_W_EMBED_NOTE);
-    h += F("</p>");
-  }
+  h += F("<ol class='steps'>");
+  h += backendIsFilaMan() ? stepsFilaman() : stepsBambuddy();
+  h += stepOpenBackend();
+  h += F("</ol><p class='note'>");
+  h += T(STR_W_EMBED_NOTE);
+  h += F("</p><p class='note'>");
+  h += T(STR_W_EMBED_CERT);
+  h += F("</p>");
   h += F("</details>");
   h += script();
   return h;

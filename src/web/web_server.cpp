@@ -18,6 +18,9 @@
 #include "web/web_pages.h"
 #include "web/web_portal.h"
 #include "web/web_shell.h"
+#include "web/web_plain_http.h"
+#include "web/web_tls_client.h"
+#include "web/web_tls_identity.h"
 
 // ArduinoJson has to come after lang.h anywhere the T() macro is in scope.
 // Nothing here includes lang.h, so the plain include is safe.
@@ -34,19 +37,29 @@
 // "site not reachable" in between. A real request follows the handshake
 // within milliseconds on a LAN; a second is patience enough.
 #define WEB_IDLE_CLIENT_MS 1000
+#define WEB_TLS_HANDSHAKE_MS 2000
+// A Finished record (or TCP accept) precedes the first peer data by an RTT.
+// Let that data arrive before a queued connection preempts this one.
+#define WEB_TLS_FIRST_DATA_MS 250
 
-// The library's handleClient() with that one number changed. Everything it
-// touches is protected and the method is virtual, so this is an override
-// rather than a patched copy of the library.
+// The library's one-client flow with a short idle wait and an optional TLS
+// transport. All response bytes go through the virtual write hooks.
 class ScaleWebServer : public WebServer {
  public:
-  using WebServer::WebServer;
+  ScaleWebServer(int port, bool tls) : WebServer(port), _useTls(tls) {}
+  void onlyProtocolBodies() { _plainHttp = true; }
+  NetworkClient &client() override { return _useTls ? _tlsClient : _currentClient; }
+  void close() override {
+    if (_useTls) dropTlsClient();
+    WebServer::close();
+  }
 
   // Nagle off for the accepted sockets: every reply here is small and the
   // browser waits for the last packet of it.
   void tune() { _server.setNoDelay(true); }
 
   void handleClient() override {
+    if (_useTls) { handleTlsClient(); return; }
     if (_currentStatus == HC_NONE) {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
       _currentClient = _server.accept();
@@ -66,7 +79,7 @@ class ScaleWebServer : public WebServer {
 
     if (_currentClient.connected() && _currentStatus == HC_WAIT_READ) {
       if (_currentClient.available()) {
-        if (_parseRequest(_currentClient)) {
+        if (parsePlainClient()) {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
           // Core 3 counts this timeout in milliseconds, and keeps the
           // response headers of every request in a list that the library's
@@ -110,17 +123,120 @@ class ScaleWebServer : public WebServer {
     }
     if (callYield) yield();
   }
+
+ protected:
+  size_t _currentClientWrite(const char *buf, size_t n) override {
+    return _useTls ? _tlsClient.write((const uint8_t *)buf, n) : WebServer::_currentClientWrite(buf, n);
+  }
+  size_t _currentClientWrite_P(PGM_P buf, size_t n) override {
+    return _useTls ? _tlsClient.write((const uint8_t *)buf, n) : WebServer::_currentClientWrite_P(buf, n);
+  }
+
+ private:
+  const bool _useTls;
+  bool _plainHttp = false;
+  WebTlsClient _tlsClient;
+  bool _tlsHandshaking = false;
+  uint32_t _tlsHsMs = 0;
+
+  bool parsePlainClient() {
+    if (!_plainHttp) return _parseRequest(_currentClient);
+    WebPlainHttpClient headers(_currentClient);
+    if (!headers.begin()) {
+      _currentClient.print("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+      return false;
+    }
+    _hostHeader = "";
+    const bool parsed = _parseRequest(headers);
+    _currentMethod = headers.method();
+    return parsed;
+  }
+
+  void dropTlsClient() {
+    _tlsClient.stop();
+    _tlsHandshaking = false;
+    _currentStatus = HC_NONE;
+    _currentUpload.reset();
+    _currentRaw.reset();
+  }
+
+  void handleTlsClient() {
+    if (_currentStatus == HC_NONE) {
+      NetworkClient tcp = _server.accept();
+      if (!tcp) {
+        if (_nullDelay) delay(1);
+        return;
+      }
+      if (!_tlsClient.begin(tcp, webTlsServerConfig())) return;
+      _tlsHandshaking = true;
+      _tlsHsMs = 0;
+      _currentStatus = HC_WAIT_READ;
+      _statusChange = millis();
+    }
+    if (_tlsHandshaking) {
+      const uint32_t start = millis();
+      const int result = _tlsClient.handshakeStep();
+      _tlsHsMs += millis() - start;
+      if (result == 1) {
+        logSDf("[verbose] web: tls handshake %u ms from %s", (unsigned)_tlsHsMs,
+               _tlsClient.remoteIP().toString().c_str());
+        _tlsHandshaking = false;
+        _statusChange = millis();
+        return;
+      }
+      const uint32_t elapsed = millis() - _statusChange;
+      const bool waiting = _tlsClient.handshakeStarted()
+        ? elapsed <= WEB_TLS_HANDSHAKE_MS
+        : elapsed <= WEB_IDLE_CLIENT_MS &&
+          (elapsed < WEB_TLS_FIRST_DATA_MS || !_server.hasClient());
+      if (result == 0 && waiting) return;
+      if (result < 0)
+        logSDf("[verbose] web: tls handshake failed (-0x%04X) from %s", (unsigned)-result,
+               _tlsClient.remoteIP().toString().c_str());
+      dropTlsClient();
+      return;
+    }
+    bool keep = false;
+    bool callYield = false;
+    if (_tlsClient.connected() && _currentStatus == HC_WAIT_READ) {
+      if (_tlsClient.available()) {
+        if (_parseRequest(_tlsClient)) {
+          _tlsClient.setTimeout(HTTP_MAX_SEND_WAIT);
+          _contentLength = CONTENT_LENGTH_NOT_SET;
+          _responseCode = 0;
+          _clearResponseHeaders();
+          const String req_uri = uri();
+          const uint32_t start = millis();
+          _handleRequest();
+          const uint32_t took = millis() - start;
+          if (took >= 300)
+            logSDf("[verbose] web: %s from %s took %u ms", req_uri.c_str(),
+                   _tlsClient.remoteIP().toString().c_str(), (unsigned)took);
+        }
+      } else {
+        const uint32_t elapsed = millis() - _statusChange;
+        keep = elapsed <= WEB_IDLE_CLIENT_MS &&
+               (elapsed < WEB_TLS_FIRST_DATA_MS || !_server.hasClient());
+        callYield = true;
+      }
+    }
+    if (!keep) dropTlsClient();
+    if (callYield) yield();
+  }
 };
 
-static ScaleWebServer ota_server(80);
-static bool ota_server_running  = false;
-static bool routes_registered   = false;
+static ScaleWebServer https_server(443, true);
+static bool https_server_running = false;
+static bool https_routes_registered = false;
+static ScaleWebServer http_server(80, false);
+static bool http_server_running = false;
+static bool http_routes_registered = false;
 
 // While the WiFi setup portal runs, port 80 serves its form instead. The
 // access point is the only network then, the main interface has nothing to
 // offer on it, and its host check would refuse every request a phone sends.
 // A server object of its own, because routes cannot be taken off one.
-static ScaleWebServer portal_server(80);
+static ScaleWebServer portal_server(80, false);
 static bool portal_server_running    = false;
 static bool portal_routes_registered = false;
 
@@ -136,11 +252,15 @@ static bool remoteLinkNeedsServer() {
 // to drive the scale. Everything except GATE_ALWAYS still answers 403 in
 // that state, so nothing becomes reachable that the switch was meant to
 // close.
-static bool serverShouldRun() {
+static bool httpShouldRun() {
   return wifi_ok && (webMasterEnabled() || remoteLinkNeedsServer());
 }
 
-static void registerRoutes();
+static bool httpsShouldRun() { return wifi_ok && webMasterEnabled(); }
+
+static void registerHttpsRoutes();
+static void registerHttpRoutes();
+static const char *HDR_KEYS[] = { "Origin" };
 
 // The origin the configured backend is served from: scheme, host and port,
 // no path, the only form frame-ancestors accepts. Only FilaMan and BamBuddy
@@ -176,25 +296,44 @@ static String backendFrameOrigin() {
   return origin;
 }
 
-static void serverEnsureRunning() {
-  if (ota_server_running) return;
-  registerRoutes();
+static void httpsEnsureRunning() {
+  if (https_server_running) return;
+  registerHttpsRoutes();
   // The headers webRequire() reads. Authorization is collected by the library
   // on its own; Origin has to be asked for, and asked for before begin().
-  static const char *HDR_KEYS[] = { "Origin" };
-  ota_server.collectHeaders(HDR_KEYS, 1);
-  ota_server.begin();
-  ota_server.tune();
-  ota_server_running = true;
-  Serial.printf("Web server listening: http://%s/\n",
-                wifiManagerLocalIP().toString().c_str());
+  https_server.collectHeaders(HDR_KEYS, 1);
+  https_server.begin();
+  https_server.tune();
+  https_server_running = true;
+  char fp[96];
+  webTlsFingerprint(fp, sizeof(fp), 0);
+  Serial.printf("Web server listening: https://%s/ (certificate SHA-256 %s)\n",
+                wifiManagerLocalIP().toString().c_str(), fp);
 }
 
-static void serverEnsureStopped() {
-  if (!ota_server_running) return;
-  ota_server.stop();
-  ota_server_running = false;
+static void httpsEnsureStopped() {
+  if (!https_server_running) return;
+  https_server.stop();
+  https_server_running = false;
   Serial.println("Web server stopped");
+}
+
+static void httpEnsureRunning() {
+  if (http_server_running) return;
+  registerHttpRoutes();
+  http_server.onlyProtocolBodies();
+  http_server.collectHeaders(HDR_KEYS, 1);
+  http_server.begin();
+  http_server.tune();
+  http_server_running = true;
+  Serial.println("Port 80 listening: FilaMan protocol, redirect to https");
+}
+
+static void httpEnsureStopped() {
+  if (!http_server_running) return;
+  http_server.stop();
+  http_server_running = false;
+  Serial.println("Port 80 stopped");
 }
 
 static void portalEnsureRunning() {
@@ -217,33 +356,33 @@ static void portalEnsureStopped() {
 }
 
 // Idempotent, called once a second from appLoop() and once more whenever a
-// screen wants the state to settle now. The only owner of the socket: there
-// used to be a second automaton in web_access.cpp with its own copy of this
-// state, and the copies drifted until port 80 stayed shut until reboot. The
-// setup portal is one more state of the same socket, not a second owner:
-// each server is stopped before the other one binds the port.
+// screen wants the state to settle now. The only owner of ports 80 and 443.
+// The portal and plaintext server never bind port 80 at the same time.
 void webServerSyncState() {
   if (setupPortalActive()) {
-    serverEnsureStopped();
+    httpsEnsureStopped();
+    httpEnsureStopped();
     portalEnsureRunning();
     return;
   }
   portalEnsureStopped();
-  if (serverShouldRun()) serverEnsureRunning();
-  else                   serverEnsureStopped();
+  if (httpsShouldRun() && webTlsIdentityEnsure()) httpsEnsureRunning();
+  else httpsEnsureStopped();
+  if (httpShouldRun()) httpEnsureRunning();
+  else httpEnsureStopped();
 }
 
-bool webServerIsListening() { return ota_server_running; }
+bool webServerIsListening() { return https_server_running; }
 
 // Registered exactly once. This used to run on every visit to the web screen,
 // which appended another handler set to WebServer's list each time and never
 // freed the previous ones - WebServer::stop() does not release them.
-static void registerRoutes() {
-  if (routes_registered) return;
-  routes_registered = true;
+static void registerHttpsRoutes() {
+  if (https_routes_registered) return;
+  https_routes_registered = true;
 
-  registerAssetRoutes(ota_server);
-  registerStaticRoutes(ota_server);
+  registerAssetRoutes(https_server);
+  registerStaticRoutes(https_server);
 
   // Every page and every endpoint it owns, straight from the one table. The
   // page route itself is wrapped here so the gate check and the chrome happen
@@ -254,14 +393,14 @@ static void registerRoutes() {
     // by-value pointer says so at the capture and leaves nothing to reason
     // about once the loop has ended.
     const WebPage *pg = WEB_PAGES[i];
-    ota_server.on(pg->path, HTTP_GET, [pg]() {
+    https_server.on(pg->path, HTTP_GET, [pg]() {
       // A page that does not apply to this device is absent, not refused:
       // there is no backend page at all on Spoolman.
       if (pg->applies && !pg->applies()) {
-        ota_server.send(404, "text/plain", "Not found");
+        https_server.send(404, "text/plain", "Not found");
         return;
       }
-      if (!webRequire(ota_server, pg->gate, webPageLabel(*pg))) return;
+      if (!webRequire(https_server, pg->gate, webPageLabel(*pg))) return;
       String html = webShellHead(webPageLabel(*pg));
       html += webShellHeader();
       html += webShellNav(pg->path);
@@ -270,21 +409,24 @@ static void registerRoutes() {
       // No page of the scale inside somebody else's frame: a site on the
       // same network could otherwise lay its own buttons over Flash, Erase or
       // Restart and have a visitor click them.
-      ota_server.sendHeader("X-Frame-Options", "DENY");
+      https_server.sendHeader("X-Frame-Options", "DENY");
       // The one exception is a FilaMan or BamBuddy backend set on the scale,
       // so its sidebar link or plugin page can show it. A browser that
       // knows frame-ancestors follows it and skips the DENY above; an older
       // one keeps refusing every frame.
       const String frame_origin = backendFrameOrigin();
       if (frame_origin.length()) {
-        ota_server.sendHeader("Content-Security-Policy", "frame-ancestors " + frame_origin);
+        https_server.sendHeader("Content-Security-Policy", "frame-ancestors " + frame_origin);
       }
-      ota_server.send(200, "text/html", html);
+      https_server.send(200, "text/html", html);
     });
-    if (pg->routes) pg->routes(ota_server);
+    if (pg->routes) pg->routes(https_server);
   }
+}
 
-
+static void registerHttpRoutes() {
+  if (http_routes_registered) return;
+  http_routes_registered = true;
   // The two FilaMan device endpoints. GATE_ALWAYS, the only level that ignores
   // the master switch: these have to answer whenever the scale is awake, that
   // is the whole point of keeping the socket up. What the gate does ask is
@@ -295,19 +437,19 @@ static void registerRoutes() {
   // NFC bus belongs to the loop task.
 
   // "Import from tag": whatever is on the reader is sent back on the next tick.
-  ota_server.on("/api/v1/rfid/scan-request", HTTP_POST, []() {
-    if (!webRequire(ota_server, GATE_ALWAYS, "FilaMan")) return;
+  http_server.on("/api/v1/rfid/scan-request", HTTP_POST, []() {
+    if (!webRequire(http_server, GATE_ALWAYS, "FilaMan")) return;
     tagScanRequest();
-    ota_server.send(200, "application/json", "{\"status\":\"ok\"}");
+    http_server.send(200, "application/json", "{\"status\":\"ok\"}");
   });
 
 
-  ota_server.on("/api/v1/rfid/write", HTTP_POST, []() {
-    if (!webRequire(ota_server, GATE_ALWAYS, "FilaMan")) return;
+  http_server.on("/api/v1/rfid/write", HTTP_POST, []() {
+    if (!webRequire(http_server, GATE_ALWAYS, "FilaMan")) return;
     JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, ota_server.arg("plain"));
+    DeserializationError err = deserializeJson(doc, http_server.arg("plain"));
     if (err) {
-      ota_server.send(400, "application/json", "{\"status\":\"error\"}");
+      http_server.send(400, "application/json", "{\"status\":\"error\"}");
       return;
     }
 
@@ -325,12 +467,12 @@ static void registerRoutes() {
     // writes, and the setting stops mattering.
     const char *proto = doc["protocol"] | "";
     const bool has_record = !strcmp(proto, "openspool") || !strcmp(proto, "filaman");
-    tagRemotePayloadSet(has_record ? ota_server.arg("plain").c_str() : "",
+    tagRemotePayloadSet(has_record ? http_server.arg("plain").c_str() : "",
                         spool_id);
 
     if (spool_id > 0) {
       remoteLinkSetPending(spool_id);
-      ota_server.send(200, "application/json", "{\"status\":\"ok\"}");
+      http_server.send(200, "application/json", "{\"status\":\"ok\"}");
       return;
     }
     if (location_id > 0) {
@@ -338,14 +480,16 @@ static void registerRoutes() {
       // Turning the request down beats ignoring it: the web UI would
       // otherwise poll for a full minute before its own timeout.
       remote_link_reject_pending = true;
-      ota_server.send(200, "application/json", "{\"status\":\"ok\"}");
+      http_server.send(200, "application/json", "{\"status\":\"ok\"}");
       return;
     }
-    ota_server.send(400, "application/json", "{\"status\":\"error\"}");
+    http_server.send(400, "application/json", "{\"status\":\"error\"}");
   });
+  registerPlainHttpRoutes(http_server);
 }
 
 void handleOtaServerClient() {
-  if (ota_server_running)    ota_server.handleClient();
+  if (https_server_running)    https_server.handleClient();
+  if (http_server_running)     http_server.handleClient();
   if (portal_server_running) portal_server.handleClient();
 }

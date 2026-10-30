@@ -89,6 +89,41 @@ Questions or trouble? Join the [Discord](https://discord.gg/K3KmKnrWhP), happy t
 - 🧾 **Works without a load cell, too** – switch off *Scale fitted* and the device becomes a pure tag terminal: read, link and write tags and set locations, without weights on the screen
 - 🩺 **Easy debugging** – a part defective, or the hardware assembled wrongly? The scale recognises the most common faults, says so in plain words and tells you what to do. If that does not help, the log is within reach in the browser, live if you want, and so are screenshots of the display. Share them in our Discord and you get help as fast as possible
 
+### HTTPS management
+
+Open the scale at **https://**. Pages, APIs, assets and firmware uploads are
+served only on port 443. Each scale creates its own ECDSA P-256 certificate
+and keeps its private key and certificate in NVS across reboots.
+
+The browser warns because this certificate is self-signed. Before accepting,
+compare its **SHA-256 fingerprint** with **Settings > System > Web interface >
+Certificate** on the scale; every pair must match. Certificates have a 730-day
+validity window and renew within 30 days of expiry once the clock is set,
+with attempts at most once per 24 hours of uptime. Without a clock, the initial
+window starts on January 1, 2026, rather than the creation date. A renewal changes
+the fingerprint, so compare again when the browser warns.
+Before embedding the scale in BamBuddy or FilaMan, open its HTTPS address
+directly in that browser and accept the matching certificate.
+
+Port 80 redirects GET/HEAD requests to the same path over HTTPS, without the
+query string. Other management methods are refused without a password
+challenge or body parsing. Start credential-bearing requests at HTTPS:
+a redirect cannot protect a credential already sent to an HTTP address.
+A large plaintext upload may be disconnected before its refusal is displayed;
+the server does not drain an unbounded request body just to deliver an error.
+The existing configuration/maintenance switches and password still apply.
+
+**Plaintext exceptions:** FilaMan's two device tag endpoints and device token
+remain on port 80 for protocol compatibility. The WiFi setup portal remains
+HTTP on its WPA2 access point with a random password. These are not encrypted
+by the management HTTPS channel; outbound backend TLS is a separate setting.
+
+TLS handshakes have a two-second deadline. TCP-only preconnects and idle
+handshaken clients wait at most one second, with a 250 ms grace before yielding
+to a queued connection. This lets the first request arrive after the handshake
+without letting unused browser connections monopolize the server. If session
+ticket initialization fails, HTTPS continues without resumption.
+
 ### Web password protection
 
 Configuration and maintenance are off by default. For either enabled section,

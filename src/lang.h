@@ -1057,6 +1057,10 @@ enum StringID {
   STR_WEB_PASS_SET,
   STR_WEB_PASS_UNSET,
   STR_WEB_PASS_INFO,
+  STR_WEB_CERT,
+  STR_WEB_CERT_SUB,
+  STR_WEB_CERT_NONE,
+  STR_WEB_CERT_HINT,
   STR_WEB_PASS_TITLE,
   STR_WEB_PASS_HINT,
   STR_W_R_PASSWORD,
@@ -1067,6 +1071,7 @@ enum StringID {
   STR_W_AUTH_LOCKED,
   STR_W_BAD_HOST,
   STR_W_BAD_ORIGIN,
+  STR_W_HTTPS_ONLY,
 
   // The address test's result line. "%d spools" used to be English on both
   // sides.
@@ -1649,7 +1654,7 @@ enum StringID {
   STR_W_EMBED_BB_IP,
   STR_W_EMBED_BB_FIXIP,
   STR_W_EMBED_NOTE,
-  STR_W_EMBED_HTTPS,
+  STR_W_EMBED_CERT,
   STR_W_OPEN,
   STR_W_COPY_FAILED,
   STR_DBPICK_SM_UNREACHABLE,

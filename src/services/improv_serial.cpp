@@ -132,7 +132,7 @@ static void sendUrls(uint8_t command) {
   resultBegin(r, command);
   if (webMasterEnabled() && wifiManagerIsConnected()) {
     char url[32];
-    snprintf(url, sizeof(url), "http://%s", wifiManagerLocalIP().toString().c_str());
+    snprintf(url, sizeof(url), "https://%s", wifiManagerLocalIP().toString().c_str());
     resultAdd(r, url);
   }
   resultSend(r);

@@ -37,6 +37,10 @@ void webAccessLoad();
 
 bool webGateOpen(WebGate g);
 
+// Shared by the HTTPS gate and the plaintext redirect/refusal boundary.
+bool webHostIsOurs(const String &host);
+void webLogRefusal(WebServer &srv, const char *why);
+
 // The lock on the two writing gates: a numeric password, typed on the device,
 // asked for by the browser as HTTP Basic auth (any user name). Empty means no
 // password, and the status page says so. Digits only, because the device has

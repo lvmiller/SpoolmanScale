@@ -1713,7 +1713,7 @@ void appLoop() {
   perfSection("bambuddy");
   bambuddyDeviceTick();
 
-  // The one owner of port 80. Derived from the conditions once a second, so
+  // The one owner of ports 80 and 443. Derived from the conditions once a second, so
   // a flipped master switch, a backend switch, a freshly entered device
   // token and a returning WiFi all take effect without extra wiring.
   {
@@ -1721,8 +1721,8 @@ void appLoop() {
     if (millis() - last_web_sync_ms >= 1000) {
       last_web_sync_ms = millis();
       webServerSyncState();
-      // Right after, not before: the advertised _http._tcp service follows
-      // whether the socket is actually listening.
+      // Right after, not before: the advertised _https._tcp/_http._tcp services
+      // follow whether HTTPS management is actually listening.
       mdnsSyncState();
       // Last of the three: the address the interface prints depends on
       // whether the responder came up, and the DNS check on the address.
