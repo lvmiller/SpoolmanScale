@@ -2406,6 +2406,9 @@ const char* const STRINGS[][3] = {
   { "Anfrage von einer fremden Seite abgelehnt.",
     "Request from a foreign page refused.",
     "Requête venue d'une page étrangère refusée." },  // STR_W_BAD_ORIGIN
+  { "Die Waage nimmt das nur über https an. Ihre Adresse mit https:// öffnen.",
+    "The scale only accepts this over https. Open its address with https://.",
+    "La balance n'accepte cela qu'en https. Ouvrez son adresse avec https://." },  // STR_W_HTTPS_ONLY
   { "%d Spulen", "%d spools", "%d bobines" },  // STR_SPOOLS_COUNT
   { "Beide Tags gehören jetzt zu dieser Spule.",
     "Both tags now belong to this spool.",

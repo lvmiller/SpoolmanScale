@@ -1067,6 +1067,7 @@ enum StringID {
   STR_W_AUTH_LOCKED,
   STR_W_BAD_HOST,
   STR_W_BAD_ORIGIN,
+  STR_W_HTTPS_ONLY,
 
   // The address test's result line. "%d spools" used to be English on both
   // sides.

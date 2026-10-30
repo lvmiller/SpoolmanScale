@@ -49,6 +49,7 @@ GATE_EXEMPT = {
     "src/web/web_portal.cpp": "WiFi setup portal: its own server, up only while its screen is open",
     "src/web/web_assets.cpp": "logo and favicons, asked for even by the page that says the interface is off",
     "src/web/web_static.cpp": "the shared stylesheet and script: constant text, nothing in it to protect",
+    "src/web/web_plain_http.cpp": "port 80 after the move to https: redirects reads, refuses the rest, serves nothing",
 }
 # A function the call graph reaches that does not block after all: name -> reason.
 HTTP_SAFE = {}

@@ -2,7 +2,7 @@
 
 void handleOtaServerClient();
 
-// The only thing that opens or closes port 80. Derived from the conditions -
+// The only thing that opens or closes ports 80 and 443. Derived from the conditions -
 // WiFi up, master switch on, or a FilaMan device token that keeps the remote
 // link reachable - rather than driven by events, so a backend switch, a
 // flipped switch and a returning WiFi connection all take effect without
@@ -14,12 +14,12 @@ void handleOtaServerClient();
 // this state, plus direct calls from the web screen. The copies drifted and
 // port 80 stayed shut until the next reboot.
 //
-// While the WiFi setup portal runs (services/setup_portal.h), the port serves
-// the portal's form and the main interface is down.
+// While the WiFi setup portal runs (services/setup_portal.h), port 80 serves
+// the portal's form and HTTPS management is down.
 void webServerSyncState();
 
-// Whether the socket is currently accepting connections. Used by the mDNS
-// responder to advertise the HTTP service only while there is one.
+// Whether HTTPS management is accepting connections. Used by the mDNS
+// responder to advertise HTTPS and its HTTP redirect only while available.
 bool webServerIsListening();
 
 // True while a firmware image is being received through the web upload. The

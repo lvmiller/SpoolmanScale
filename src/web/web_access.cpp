@@ -66,7 +66,7 @@ void webAccessLoad() {
 
 // Nothing here touches the socket. Whether the server listens is derived
 // once a second in webServerSyncState() from these switches plus the remote
-// link, so there is exactly one place that opens and closes port 80. The
+// link, so there is exactly one place that opens and closes ports 80 and 443. The
 // previous version kept its own copy of that state here and went out of sync
 // the moment the web screen closed the server behind its back.
 void webSetMasterEnabled(bool on) {
@@ -141,7 +141,7 @@ static void lowerTrim(String &s) {
 
 // The names this scale answers to: its address, its full name, its bare
 // label and its mDNS name. A port suffix is ignored, the case too.
-static bool hostIsOurs(const String &host_in) {
+bool webHostIsOurs(const String &host_in) {
   // No Host header at all is not a browser. Nothing that rebinding or a
   // cross-site form can produce comes without one.
   if (host_in.length() == 0) return true;
@@ -161,14 +161,14 @@ static bool hostIsOurs(const String &host_in) {
   return false;
 }
 
-// "http://<one of our names>[:port]". Anything else - https, "null" from a
-// sandboxed frame, another host - is a page that is not ours.
+// "https://<one of our names>[:port]". Plain HTTP, "null" from a sandboxed
+// frame and foreign hosts are not the management interface's origin.
 static bool originIsOurs(const String &origin) {
-  if (!origin.startsWith("http://")) return false;
-  String h = origin.substring(7);
+  if (!origin.startsWith("https://")) return false;
+  String h = origin.substring(8);
   const int slash = h.indexOf('/');
   if (slash >= 0) h = h.substring(0, slash);
-  return h.length() > 0 && hostIsOurs(h);
+  return h.length() > 0 && webHostIsOurs(h);
 }
 
 // "Authorization: Basic base64(user:password)". The user name is not looked
@@ -261,7 +261,7 @@ static WebVerdict verdict(WebServer &srv, WebGate g) {
     return WEB_BAD_TOKEN;
   }
 
-  if (!hostIsOurs(srv.hostHeader())) return WEB_BAD_HOST;
+  if (!webHostIsOurs(srv.hostHeader())) return WEB_BAD_HOST;
   if (srv.method() != HTTP_GET && srv.hasHeader("Origin") &&
       !originIsOurs(srv.header("Origin"))) {
     return WEB_BAD_ORIGIN;
@@ -289,7 +289,7 @@ bool webAllowed(WebServer &srv, WebGate g) {
 
 // One line per refusal, but not one per poll: a status page left open under a
 // name the scale does not know would otherwise write every two seconds.
-static void logRefusal(WebServer &srv, const char *why) {
+void webLogRefusal(WebServer &srv, const char *why) {
   static unsigned long last_ms = 0;
   if (last_ms && millis() - last_ms < 10000UL) return;
   last_ms = millis();
@@ -309,15 +309,15 @@ bool webRequire(WebServer &srv, WebGate g, const char *what) {
       srv.send(404, "text/plain", "Not found");
       return false;
     case WEB_BAD_TOKEN:
-      logRefusal(srv, "device token");
+      webLogRefusal(srv, "device token");
       srv.send(401, "application/json", "{\"status\":\"error\",\"error\":\"unauthorized\"}");
       return false;
     case WEB_BAD_HOST:
-      logRefusal(srv, "host");
+      webLogRefusal(srv, "host");
       srv.send(403, "text/plain; charset=utf-8", T(STR_W_BAD_HOST));
       return false;
     case WEB_BAD_ORIGIN:
-      logRefusal(srv, "origin");
+      webLogRefusal(srv, "origin");
       srv.send(403, "text/plain; charset=utf-8", T(STR_W_BAD_ORIGIN));
       return false;
     case WEB_GATE_SHUT:
@@ -344,7 +344,7 @@ bool webRequire(WebServer &srv, WebGate g, const char *what) {
       }
       return false;
     case WEB_LOCKED: {
-      logRefusal(srv, "password locked");
+      webLogRefusal(srv, "password locked");
       unsigned int secs = (webAuthRetryMs(s_auth, (uint32_t)millis()) + 999) / 1000;
       if (secs < 1) secs = 1;
       const unsigned int mins = (secs + 59) / 60;
