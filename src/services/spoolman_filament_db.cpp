@@ -9,7 +9,7 @@
 
 #include "../app/backend_switch.h"
 #include "../hardware/sd_logger.h"
-#include "fdb_block_stream.h"
+#include "fdb_json.h"
 #include "filament_db.h"
 #include "filament_db_store.h"
 #include "spoolman_api.h"
@@ -122,9 +122,7 @@ typedef void (*FdbElementFn)(JsonObjectConst e, void* ctx);
 // Each object of a JSON array, one at a time, through the filter: the
 // array is never held whole. False when the body is not such an array or
 // broke off.
-static bool eachElement(Stream& raw, JsonDocument& filter, FdbElementFn fn, void* ctx) {
-  FdbBlockStream s(raw);
-  s.setTimeout(SM_FDB_TIMEOUT_MS);
+static bool readElements(Stream& s, JsonDocument& filter, FdbElementFn fn, void* ctx) {
   if (skipBlanks(s) != '[') return false;
   JsonDocument doc;
   for (;;) {
@@ -137,6 +135,15 @@ static bool eachElement(Stream& raw, JsonDocument& filter, FdbElementFn fn, void
     if (c == ']') return true;
     if (c != ',') return false;
   }
+}
+
+static bool eachElement(Stream& raw, const FdbReadLimit& limit, JsonDocument& filter,
+                        FdbElementFn fn, void* ctx) {
+  FdbBlockStream s(raw, limit);
+  const bool ok = readElements(s, filter, fn, ctx);
+  if (s.exhausted())
+    logSDf("Filament DB: list cut off by the read limit after %u bytes", (unsigned)s.bytesRead());
+  return ok && !s.exhausted();
 }
 
 // An entry without a diameter reads as 1.75 mm (contract 6.4).
@@ -203,7 +210,7 @@ static bool readIndex(Stream& body, void* ctx) {
   filter["material"]     = true;
   filter["name"]         = true;
   filter["diameter"]     = true;
-  return eachElement(body, filter, indexElement, ctx);
+  return eachElement(body, FDB_LIMIT_WHOLE_DB, filter, indexElement, ctx);
 }
 
 // The makers the inventory has spools by, marked in the index. A failure
@@ -212,7 +219,8 @@ static void markOwnedMakers(const char* base_url) {
   JsonDocument filter;
   filter.to<JsonArray>().add<JsonObject>()["name"] = true;
   JsonDocument doc;
-  const int code = spoolmanGetJson(base_url, "/api/v1/vendor", doc, SM_FDB_TIMEOUT_MS, &filter);
+  FdbJsonRead r = { &doc, &filter, &FDB_LIMIT_ANSWER, "Spoolman vendor list" };
+  const int code = spoolmanGetStreamed(base_url, "/api/v1/vendor", SM_FDB_TIMEOUT_MS, fdbReadJson, &r);
   if (code != 200) { logSDf("Filament DB: vendor list -> HTTP %d", code); return; }
   for (JsonObjectConst v : doc.as<JsonArrayConst>()) fdbMarkOwned(v["name"] | "");
 }
@@ -258,8 +266,9 @@ static int loadLightIndex(const char* base_url) {
   m["name"]  = true;
   m["count"] = true;
   JsonDocument doc(&s_psram);
-  const int code = spoolmanGetJson(base_url, SM_FDB_INDEX_PATH "?" SM_FDB_DIAMETER_QUERY, doc,
-                                   SM_FDB_TIMEOUT_MS, &filter);
+  FdbJsonRead r = { &doc, &filter, &FDB_LIMIT_ANSWER, "Spoolman makers index" };
+  const int code = spoolmanGetStreamed(base_url, SM_FDB_INDEX_PATH "?" SM_FDB_DIAMETER_QUERY,
+                                      SM_FDB_TIMEOUT_MS, fdbReadJson, &r);
   if (code != 200) {
     logSDf("Filament DB: index -> HTTP %d", code);
     return code;
@@ -364,7 +373,7 @@ static void entryElement(JsonObjectConst j, void* p) {
 static bool readEntries(Stream& body, void* ctx) {
   JsonDocument filter;
   entryFilter(filter);
-  return eachElement(body, filter, entryElement, ctx);
+  return eachElement(body, FDB_LIMIT_ANSWER, filter, entryElement, ctx);
 }
 
 // The light form answers the whole list of one maker and material at once.
@@ -416,7 +425,7 @@ static void eachOfElement(JsonObjectConst e, void* p) {
 static bool readEach(Stream& body, void* ctx) {
   JsonDocument filter;
   entryFilter(filter);
-  return eachElement(body, filter, eachOfElement, ctx);
+  return eachElement(body, FDB_LIMIT_ANSWER, filter, eachOfElement, ctx);
 }
 
 int spoolmanFdbEachOf(const char* base_url, const char* maker, const char* material,

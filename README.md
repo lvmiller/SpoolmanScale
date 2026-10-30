@@ -177,6 +177,22 @@ Since BamBuddy's October daily builds, the drying date has a field of its own, a
 
 Any server that implements the [integration specification](https://github.com/Niko11111/SpoolmanScale-Integration) works with the scale, also online services that do not run on your own network. A checker is included.
 
+### Catalog read limits
+
+Catalog response bodies are bounded so a server that keeps sending data cannot
+hold a catalog lookup open indefinitely. The Spoolman-form whole-database
+index has a 120 s / 8 MiB budget; every other catalog answer has a
+15 s / 2 MiB budget, including BamBuddy's color-name lookup and inventory
+metadata used to enrich the catalog (owned makers and empty spools).
+The time budget starts when body reading begins and can be exceeded by at
+most one request's per-read timeout (6 to 20 s with the default callers).
+
+When a budget is exhausted, the read fails, the response is ended, and partial
+results are neither used nor cached. The log reports `cut off by the read limit`
+and the byte count. Standalone inventory operations and HTTP header timeouts are unchanged.
+The budgets are defined in `src/services/fdb_block_stream.h`; the host regression
+can be run with `python3 test/test_fdb_read_limit.py`.
+
 ---
 
 ## Roadmap

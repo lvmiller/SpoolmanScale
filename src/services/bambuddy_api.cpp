@@ -11,6 +11,7 @@
 #include "hardware/sd_logger.h"
 #include "services/device_name.h"
 #include "services/dried_marker.h"
+#include "services/fdb_json.h"
 #include "services/http_progress.h"
 #include "services/json_util.h"
 #include "services/last_dried.h"
@@ -1094,12 +1095,13 @@ int bbLookupColorName(const char* base_url, const char* api_key, const char* hex
     esc[o] = '\0';
   }
 
-  char url[256];
-  snprintf(url, sizeof(url), "%s/api/v1/inventory/colors/by-material?hex=%.6s%s%s",
-           base_url, hex6, esc[0] ? "&material=" : "", esc);
+  char path[256];
+  snprintf(path, sizeof(path), "/api/v1/inventory/colors/by-material?hex=%.6s%s%s",
+           hex6, esc[0] ? "&material=" : "", esc);
 
   JsonDocument doc;
-  int code = getJson(url, api_key, doc, timeout_ms, nullptr, nullptr);
+  FdbJsonRead r = { &doc, nullptr, &FDB_LIMIT_ANSWER, "BamBuddy colour name" };
+  int code = bbGetStreamed(base_url, api_key, path, timeout_ms, fdbReadJson, &r);
   if (code != 200) return code;
 
   const char* name = doc["color_name"] | "";

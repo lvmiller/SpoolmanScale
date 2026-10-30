@@ -7,6 +7,7 @@
 #include <strings.h>
 
 #include "../hardware/sd_logger.h"
+#include "fdb_json.h"
 #include "spoolman_api.h"
 #include "spoolman_filament_db.h"
 
@@ -181,7 +182,11 @@ static void lookupElement(JsonObjectConst e, void* p) {
 static bool findInLightList(const char* base_url, const TagCreateInput& in, TagFilamentPlan* plan) {
   DbLookup l = { &in, plan, false };
   const int code = spoolmanFdbEachOf(base_url, in.vendor, in.material, lookupElement, &l);
-  if (code != 200) logSDf("Spoolman: filament database list -> HTTP %d", code);
+  if (code != 200) {
+    logSDf("Spoolman: filament database list -> HTTP %d", code);
+    if (l.found) tagFilamentPlanClear(plan);
+    return false;
+  }
   return l.found;
 }
 
@@ -203,7 +208,8 @@ static bool findInDatabase(const char* base_url, const TagCreateInput& in, TagFi
   const String path = String("/api/v1/external/filament/search?limit=") + SM_FIL_DB_LIMIT +
                       "&query=" + spoolmanUrlEncode(words.c_str());
   JsonDocument doc;
-  const int code = spoolmanGetJson(base_url, path.c_str(), doc, SM_FIL_DB_TIMEOUT_MS);
+  FdbJsonRead r = { &doc, nullptr, &FDB_LIMIT_ANSWER, "Spoolman database search" };
+  const int code = spoolmanGetStreamed(base_url, path.c_str(), SM_FIL_DB_TIMEOUT_MS, fdbReadJson, &r);
   if (code != 200) {
     logSDf("Spoolman: filament database search -> HTTP %d", code);
     return false;
@@ -280,7 +286,9 @@ static float databaseDensity(const char* base_url, const char* vendor, const cha
     const String path = String("/api/v1/external/filament/search?limit=") + SM_FIL_DB_LIMIT +
                         "&query=" + spoolmanUrlEncode(material);
     JsonDocument doc;
-    if (spoolmanGetJson(base_url, path.c_str(), doc, SM_FIL_DB_TIMEOUT_MS, &filter) != 200) return 0.0f;
+    FdbJsonRead r = { &doc, &filter, &FDB_LIMIT_ANSWER, "Spoolman database search" };
+    if (spoolmanGetStreamed(base_url, path.c_str(), SM_FIL_DB_TIMEOUT_MS, fdbReadJson, &r) != 200)
+      return 0.0f;
     for (JsonObjectConst e : doc.as<JsonArrayConst>()) countDensity(e, &dc);
   }
   return dc.best < 0 ? 0.0f : dc.value[dc.best] / 100.0f;
@@ -293,7 +301,8 @@ static float materialDensity(const char* base_url, const char* material) {
   f["material"] = true;
   f["density"]  = true;
   JsonDocument doc;
-  if (spoolmanGetJson(base_url, "/api/v1/external/material", doc, SM_FIL_TIMEOUT_MS, &filter) != 200)
+  FdbJsonRead r = { &doc, &filter, &FDB_LIMIT_ANSWER, "Spoolman material list" };
+  if (spoolmanGetStreamed(base_url, "/api/v1/external/material", SM_FIL_TIMEOUT_MS, fdbReadJson, &r) != 200)
     return 0.0f;
   for (JsonObjectConst m : doc.as<JsonArrayConst>())
     if (strcasecmp(m["material"] | "", material) == 0) return m["density"] | 0.0f;

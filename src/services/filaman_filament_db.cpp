@@ -10,7 +10,7 @@
 
 #include "../hardware/sd_logger.h"
 #include "color_family.h"
-#include "fdb_block_stream.h"
+#include "fdb_json.h"
 #include "filaman_api.h"
 #include "filament_db.h"
 #include "tag_create.h"
@@ -104,24 +104,10 @@ static T* psramTable(T* p, size_t n) {
 //  Pages
 // ------------------------------------------------------------
 
-struct PageRead {
-  JsonDocument* doc;
-  JsonDocument* filter;
-};
-
-static bool readPage(Stream& raw, void* ctx) {
-  PageRead* p = (PageRead*)ctx;
-  FdbBlockStream s(raw);
-  s.setTimeout(FM_FDB_TIMEOUT_MS);
-  const DeserializationError err = deserializeJson(*p->doc, s, DeserializationOption::Filter(*p->filter));
-  if (err) logSDf("Filament DB: FilaMan page did not parse: %s", err.c_str());
-  return !err;
-}
-
 static int getPage(const char* base_url, const char* api_key, const String& path,
                    JsonDocument& doc, JsonDocument& filter) {
-  PageRead r = { &doc, &filter };
-  return filamanGetStreamed(base_url, api_key, path.c_str(), FM_FDB_TIMEOUT_MS, readPage, &r);
+  FdbJsonRead r = { &doc, &filter, &FDB_LIMIT_ANSWER, "FilaMan page" };
+  return filamanGetStreamed(base_url, api_key, path.c_str(), FM_FDB_TIMEOUT_MS, fdbReadJson, &r);
 }
 
 // Every item of a paged list. The HTTP code.

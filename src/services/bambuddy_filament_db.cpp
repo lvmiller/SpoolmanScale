@@ -12,7 +12,7 @@
 #include "../hardware/sd_logger.h"
 #include "bambuddy_api.h"
 #include "color_family.h"
-#include "fdb_block_stream.h"
+#include "fdb_json.h"
 #include "filament_db.h"
 #include "tag_create_bambu.h"
 
@@ -46,11 +46,6 @@ struct SpiRamAllocator : ArduinoJson::Allocator {
 };
 
 SpiRamAllocator s_psram;
-
-struct ListRead {
-  JsonDocument* doc;
-  JsonDocument* filter;
-};
 
 }  // namespace
 
@@ -113,23 +108,14 @@ static void splitAsIndexed(const char* product, char* material, char* line, size
 //  Requests
 // ------------------------------------------------------------
 
-static bool readList(Stream& raw, void* ctx) {
-  ListRead* r = (ListRead*)ctx;
-  FdbBlockStream s(raw);
-  s.setTimeout(BB_FDB_TIMEOUT_MS);
-  const DeserializationError err = deserializeJson(*r->doc, s, DeserializationOption::Filter(*r->filter));
-  if (err) logSDf("Filament DB: BamBuddy list did not parse: %s", err.c_str());
-  return !err;
-}
-
 // One whole list, filtered to the keys given. The HTTP code.
 static int getList(const char* base_url, const char* api_key, const char* path,
                    JsonDocument& doc, std::initializer_list<const char*> keys) {
   JsonDocument filter;
   JsonObject f = filter.to<JsonArray>().add<JsonObject>();
   for (const char* key : keys) f[key] = true;
-  ListRead r = { &doc, &filter };
-  const int code = bbGetStreamed(base_url, api_key, path, BB_FDB_TIMEOUT_MS, readList, &r);
+  FdbJsonRead r = { &doc, &filter, &FDB_LIMIT_ANSWER, "BamBuddy list" };
+  const int code = bbGetStreamed(base_url, api_key, path, BB_FDB_TIMEOUT_MS, fdbReadJson, &r);
   if (code != 200) logSDf("Filament DB: BamBuddy %s -> HTTP %d", path, code);
   return code;
 }
