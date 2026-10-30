@@ -7,6 +7,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # The custom-sdkconfig rebuild starts a second core installed by uv.
+      UV_CONSTRAINT: ${{ github.workspace }}/scripts/build-constraints.txt
     permissions:
       contents: write
     strategy:
@@ -21,13 +24,13 @@ jobs:
           path: |
             ~/.cache/pip
             ~/.platformio/.cache
-          key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini') }}
+          key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini', 'scripts/build-constraints.txt') }}
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install PlatformIO
-        run: pip install --upgrade platformio
+        run: python -m pip install --upgrade --constraint scripts/build-constraints.txt platformio
       - name: Build ${{ matrix.env }}
         run: pio run -e ${{ matrix.env }}
       - name: Refuse a binary an installed device could not take

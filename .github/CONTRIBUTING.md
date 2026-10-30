@@ -50,11 +50,24 @@ it keeps `dev` testable on hardware one step at a time.
 Setup: [PlatformIO](https://platformio.org/), plus `python3` and `node` for the
 checks. Hardware and wiring: [BUILDING.md](../BUILDING.md).
 
+From the repository root, with your PlatformIO Python virtual environment
+active:
+
 ```bash
+export UV_CONSTRAINT="$PWD/scripts/build-constraints.txt"
+python3 -m pip install --upgrade --constraint "$UV_CONSTRAINT" platformio
 scripts/check.sh      # house rules, the same script CI runs
 pio run               # firmware build (env wt32-sc01-plus)
 pio run -t upload     # flash over USB
 ```
+
+Keep `UV_CONSTRAINT` exported for builds and uploads, including a fresh build.
+The `custom_sdkconfig` rebuild creates a separate Python environment and uses
+uv to install its nested pioarduino core. The constraints pin both cores to
+6.2.0: pioarduino 6.2.0.post1 is converted to the prerelease `6.2.0-post.1`
+and rejected by the platform's `>=6.2.0` check. Both CI workflows use the same
+file. Upgrade the pins together only after a build with an empty PlatformIO
+core directory and no project `.pio` directory succeeds.
 
 `scripts/check.sh` must be green. Some of its numbers are a ratchet against
 `scripts/conventions_baseline.json`: old debt is frozen, a count may stay or

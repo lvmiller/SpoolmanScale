@@ -1,0 +1,4 @@
+# Applied to the outer pip install and inherited by pioarduino's nested uv installer.
+# 6.2.0.post1 becomes SemVer 6.2.0-post.1 and fails the platform's >=6.2.0 check.
+platformio==6.2.0
+pioarduino==6.2.0
