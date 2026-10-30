@@ -41,18 +41,22 @@ void mdnsStop() { stopResponder(); }
 // this a Bonjour browser would list a scale whose page refuses to load
 // whenever the web server is down.
 static void addService() {
-  if (!MDNS.addService("http", "tcp", 80)) return;
+  if (!MDNS.addService("https", "tcp", 443)) return;
   s_service_added = true;
-  MDNS.addServiceTxt("http", "tcp", "fw",    FW_VERSION);
-  MDNS.addServiceTxt("http", "tcp", "id",    wifiManagerDeviceId());
-  MDNS.addServiceTxt("http", "tcp", "model", "WT32-SC01-Plus");
-  MDNS.addServiceTxt("http", "tcp", "backend", backendName());
+  MDNS.addService("http", "tcp", 80);
+  for (const char *service : { "https", "http" }) {
+    MDNS.addServiceTxt(service, "tcp", "fw", FW_VERSION);
+    MDNS.addServiceTxt(service, "tcp", "id", wifiManagerDeviceId());
+    MDNS.addServiceTxt(service, "tcp", "model", "WT32-SC01-Plus");
+    MDNS.addServiceTxt(service, "tcp", "backend", backendName());
+  }
   s_txt_backend = (int)backendMode();
 }
 
 // ESPmDNS has no removeService, so this reaches past it into the IDF
 // component it wraps. Same for the TXT update below.
 static void removeService() {
+  mdns_service_remove("_https", "_tcp");
   mdns_service_remove("_http", "_tcp");
   s_service_added = false;
   s_txt_backend   = -1;
@@ -87,7 +91,7 @@ void mdnsSyncState() {
     strncpy(s_advertised, deviceLabel(), sizeof(s_advertised) - 1);
     s_advertised[sizeof(s_advertised) - 1] = '\0';
     logSDf("mDNS: responding as %s", name);
-    Serial.printf("mDNS: http://%s/\n", name);
+    Serial.printf("mDNS: https://%s/\n", name);
   }
 
   const bool serving = webServerIsListening();
@@ -98,6 +102,7 @@ void mdnsSyncState() {
   // rewritten every pass, because setting a TXT item republishes it.
   if (s_service_added && s_txt_backend != (int)backendMode()) {
     s_txt_backend = (int)backendMode();
+    mdns_service_txt_item_set("_https", "_tcp", "backend", backendName());
     mdns_service_txt_item_set("_http", "_tcp", "backend", backendName());
   }
 }

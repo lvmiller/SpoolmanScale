@@ -291,9 +291,9 @@ void deviceBrowserUrl(char* out, size_t len) {
   // backs it, and a bare label is not an address anyone can type.
   const bool named = s_domain[0] || mdnsRunning();
   if (named) {
-    snprintf(out, len, "http://%s", s_fqdn);
+    snprintf(out, len, "https://%s", s_fqdn);
   } else {
-    snprintf(out, len, "http://%s", wifiManagerLocalIP().toString().c_str());
+    snprintf(out, len, "https://%s", wifiManagerLocalIP().toString().c_str());
   }
 }
 

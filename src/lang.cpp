@@ -3613,9 +3613,9 @@ const char* const STRINGS[][3] = {
   { "Unter einer anderen Adresse (Name statt IP, Proxy) zeigt der Browser die Waage dort nicht an.",
     "Under any other address (a name instead of the IP, a proxy) the browser does not show the scale there.",
     "Sous une autre adresse (un nom au lieu de l'IP, un proxy), le navigateur n'y affiche pas la balance." },  // STR_W_EMBED_NOTE
-  { "Oben steht eine https-Adresse. Eine https-Seite darf die Waage, die nur http spricht, nicht einbetten. Zum Einbetten das Backend oben mit http eintragen und so öffnen.",
-    "The address above is https. An https page may not embed the scale, which only speaks http. To embed it, enter the backend above with http and open it that way.",
-    "L'adresse ci-dessus est en https. Une page https ne peut pas intégrer la balance, qui ne parle que http. Pour l'intégrer, saisissez le backend ci-dessus en http et ouvrez-le ainsi." },  // STR_W_EMBED_HTTPS
+  { "Die Waage nutzt ein eigenes Zertifikat. Ihre Adresse einmal direkt in diesem Browser öffnen und das Zertifikat annehmen, sonst bleibt der Rahmen leer.",
+    "The scale uses its own certificate. Open its address once directly in this browser and accept the certificate, otherwise the frame stays empty.",
+    "La balance utilise son propre certificat. Ouvrez une fois son adresse directement dans ce navigateur et acceptez le certificat, sinon le cadre reste vide." },  // STR_W_EMBED_CERT
   { "Öffnen",
     "Open",
     "Ouvrir" },  // STR_W_OPEN

@@ -3,9 +3,9 @@
 #include <stdbool.h>
 
 // The mDNS responder. Makes the scale answer to "<label>.local" and
-// advertises its web interface as an _http._tcp service, so it also turns up
-// in Home Assistant, Bonjour browsers and Safari rather than only at an
-// address the user has to read off the device and retype.
+// advertises its web interface as _https._tcp on 443 and its _http._tcp
+// redirect on 80, so it also turns up in Home Assistant, Bonjour browsers
+// and Safari rather than only at an address read off the device.
 //
 // The name itself lives in services/device_name.h - this file only answers to
 // it. That module also owns the switch that turns the responder off, for a

@@ -381,7 +381,7 @@ static void routes(WebServer &srv) {
     // which is the one moment it is worth reading - it used to sit under the
     // field for good.
     char url[DEVICE_FQDN_MAX + 16];
-    snprintf(url, sizeof(url), "http://%s/", deviceFqdn());
+    snprintf(url, sizeof(url), "https://%s/", deviceFqdn());
     char msg[DEVICE_FQDN_MAX + 160];
     snprintf(msg, sizeof(msg), T(STR_W_DEVNAME_NOW), url);
     srv.send(200, "text/plain", msg);

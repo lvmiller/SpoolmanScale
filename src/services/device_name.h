@@ -22,7 +22,7 @@
 // lwIP neither requests nor stores it, and lwIP ships precompiled), and a
 // suffix from a lease would not have proven a record exists behind it anyway.
 //
-// Every "http://" and every ".local" the firmware writes down is composed
+// Every "https://" management address and ".local" name is composed
 // here. The responder in mdns_service.cpp is the one caller that names its
 // own suffix, and it asks for it below.
 
@@ -66,7 +66,7 @@ IPAddress deviceDnsIP();     // meaningful only for DEV_DNS_OTHER
 // check: right after a rename, on an address change, and every five minutes.
 void deviceNameTick();
 
-// The address someone types, "http://" included. Falls back to the bare IP
+// The address someone types, "https://" included. Falls back to the bare IP
 // when no name resolves, and never returns an empty string while WiFi is up.
 void deviceBrowserUrl(char* out, size_t len);
 
