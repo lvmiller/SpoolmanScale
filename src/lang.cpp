@@ -2367,19 +2367,23 @@ const char* const STRINGS[][3] = {
     "Einstellungen, Tags, Logs und Firmware. Ohne Passwort darf jedes Gerät "
     "im Netz diese Bereiche nutzen, sobald sie eingeschaltet sind - auch "
     "Firmware flashen.\n\n"
-    "4 bis 8 Ziffern. Der Browser fragt danach, der Benutzername ist egal. "
-    "Leer speichern entfernt das Passwort.",
+    "6 bis 8 Ziffern. Der Browser fragt danach, der Benutzername ist egal. "
+    "Leer speichern entfernt das Passwort.\n\n"
+    "Nach 5 falschen Versuchen nimmt die Waage nur noch alle 5 Minuten einen an. "
+    "Hier neu speichern hebt die Sperre sofort auf.",
     "Protects the Settings and Device sections in the browser: backend, "
     "settings, tags, logs and firmware. Without a password any device on the "
     "network can use those sections once they are switched on - firmware "
     "upload included.\n\n"
-    "4 to 8 digits. The browser asks for it, the user name does not matter. "
-    "Save empty to remove the password.",
-    "Protège les sections Réglages et Maintenance de l'interface web : backend, réglages, tags, journaux et firmware. Sans mot de passe, tout appareil du réseau peut utiliser ces sections dès qu'elles sont activées - y compris installer un firmware.\n\n4 à 8 chiffres. Le navigateur vous le demandera ; le nom d'utilisateur est ignoré. Validez sans rien saisir pour supprimer le mot de passe." },  // STR_WEB_PASS_INFO
+    "6 to 8 digits. The browser asks for it, the user name does not matter. "
+    "Save empty to remove the password.\n\n"
+    "After 5 wrong tries the scale takes only one every 5 minutes. "
+    "Saving the password here again lifts that at once.",
+    "Protège les sections Réglages et Maintenance de l'interface web : backend, réglages, tags, journaux et firmware. Sans mot de passe, tout appareil du réseau peut utiliser ces sections dès qu'elles sont activées - y compris installer un firmware.\n\n6 à 8 chiffres. Le navigateur vous le demandera ; le nom d'utilisateur est ignoré. Validez sans rien saisir pour supprimer le mot de passe.\n\nAprès 5 essais erronés, la balance n'en accepte plus qu'un toutes les 5 minutes. L'enregistrer à nouveau ici lève aussitôt ce blocage." },  // STR_WEB_PASS_INFO
   { "Web-Passwort", "Web password", "Mot de passe web" },  // STR_WEB_PASS_TITLE
-  { "4 bis 8 Ziffern. Leer speichern entfernt das Passwort.",
-    "4 to 8 digits. Save empty to remove the password.",
-    "4 à 8 chiffres. Validez sans rien saisir pour supprimer le mot de passe." },  // STR_WEB_PASS_HINT
+  { "6 bis 8 Ziffern. Leer speichern entfernt das Passwort.",
+    "6 to 8 digits. Save empty to remove the password.",
+    "6 à 8 chiffres. Validez sans rien saisir pour supprimer le mot de passe." },  // STR_WEB_PASS_HINT
   { "Passwort",      "Password", "Mot de passe" },  // STR_W_R_PASSWORD
   { "gesetzt",       "set",      "défini" },  // STR_W_S_SET
   { "nicht gesetzt", "not set",  "non défini" },  // STR_W_S_NOTSET
@@ -2391,6 +2395,9 @@ const char* const STRINGS[][3] = {
   { "Passwort nötig: beliebiger Benutzername, das Web-Passwort der Waage.",
     "Password required: any user name, the scale's web password.",
     "Mot de passe requis : n'importe quel nom d'utilisateur, et le mot de passe web de la balance." },  // STR_W_AUTH_NEEDED
+  { "Zu viele falsche Passwörter. Neuer Versuch in %u min, oder das Passwort am Gerät neu speichern.",
+    "Too many wrong passwords. Try again in %u min, or save the password again on the device.",
+    "Trop de mots de passe erronés. Réessayez dans %u min, ou enregistrez à nouveau le mot de passe sur la balance." },  // STR_W_AUTH_LOCKED
   { "Diese Adresse gehört nicht zur Waage. Bitte über die IP-Adresse oder den "
     "Gerätenamen aufrufen.",
     "This address does not belong to the scale. Open it by IP address or by "

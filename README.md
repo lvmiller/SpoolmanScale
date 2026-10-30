@@ -89,6 +89,23 @@ Questions or trouble? Join the [Discord](https://discord.gg/K3KmKnrWhP), happy t
 - 🧾 **Works without a load cell, too** – switch off *Scale fitted* and the device becomes a pure tag terminal: read, link and write tags and set locations, without weights on the screen
 - 🩺 **Easy debugging** – a part defective, or the hardware assembled wrongly? The scale recognises the most common faults, says so in plain words and tells you what to do. If that does not help, the log is within reach in the browser, live if you want, and so are screenshots of the display. Share them in our Discord and you get help as fast as possible
 
+### Web password protection
+
+Configuration and maintenance are off by default. For either enabled section,
+set a numeric password on the scale under **Web**. New passwords require 6 to 8
+digits; stored 4 or 5 digit passwords keep working until changed. Saving an empty
+entry removes the password. A non-empty entry shorter than 6 digits is refused
+without changing the existing password.
+
+Both sections, including firmware uploads, share one device-wide wrong-password
+budget: 5 initial attempts, with one attempt restored every 5 minutes, up to 5.
+New connections, addresses or Basic user names do not reset it. Missing credentials,
+correct passwords and repeats of the most recently counted wrong password do not
+consume attempts; successful authentication does not refill the budget. While the
+budget is empty, even the correct password gets HTTP 429 with `Retry-After` and no
+new authentication prompt. Wait for a refill, save the password again on the
+touchscreen, or reboot to recover. The budget is kept in RAM only.
+
 ---
 
 ## Hardware

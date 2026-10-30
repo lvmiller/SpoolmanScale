@@ -1,4 +1,5 @@
 #include "web/web_access.h"
+#include "web/web_auth_throttle.h"
 
 #include "services/ota_state.h"
 
@@ -27,34 +28,40 @@ static bool master_on      = true;
 static bool config_on      = false;
 static bool maintenance_on = false;
 static char s_pass[WEB_PASS_MAX + 1] = "";
+static WebAuthThrottle s_auth;
 
 bool webMasterEnabled()      { return master_on; }
 bool webConfigEnabled()      { return config_on; }
 bool webMaintenanceEnabled() { return maintenance_on; }
 bool webHasPassword()        { return s_pass[0] != '\0'; }
 
-// Keeps the digits, drops the rest, and treats anything shorter than the
-// minimum as no password: a two digit lock would only look like one.
-static void passFromString(const char *in) {
+// Keeps only digits up to the device's input limit. Loading and saving use
+// different minimums so an existing legacy password is never dropped.
+static size_t passDigits(const char *in, char out[WEB_PASS_MAX + 1]) {
   size_t n = 0;
   for (const char *p = in ? in : ""; *p && n < WEB_PASS_MAX; p++) {
-    if (*p >= '0' && *p <= '9') s_pass[n++] = *p;
+    if (*p >= '0' && *p <= '9') out[n++] = *p;
   }
-  s_pass[n] = '\0';
-  if (n < WEB_PASS_MIN) s_pass[0] = '\0';
+  out[n] = '\0';
+  return n;
 }
 
-void webSetPassword(const char *digits) {
-  passFromString(digits);
+bool webSetPassword(const char *digits) {
+  char d[WEB_PASS_MAX + 1] = {};
+  const size_t n = passDigits(digits, d);
+  if (n > 0 && n < WEB_PASS_MIN) return false;
+  memcpy(s_pass, d, sizeof s_pass);
   prefsPutString("web_pass", s_pass);
+  webAuthReset(s_auth);
   logSDf("Web: password %s", s_pass[0] ? "set" : "removed");
+  return true;
 }
 
 void webAccessLoad() {
   master_on      = prefsGetBool("web_master", true);
   config_on      = prefsGetBool("web_config", false);
   maintenance_on = prefsGetBool("web_maint",  false);
-  passFromString(prefsGetString("web_pass", "").c_str());
+  if (passDigits(prefsGetString("web_pass", "").c_str(), s_pass) < WEB_PASS_LEGACY_MIN) s_pass[0] = '\0';
 }
 
 // Nothing here touches the socket. Whether the server listens is derived
@@ -101,7 +108,10 @@ bool webGateOpen(WebGate g) {
 //    text/plain, which needs no preflight - so without this check any web
 //    page the owner visits could repoint the backend, restart the scale or
 //    submit a firmware image through a hidden form.
-//  - For the two writing gates: the password, when one is set.
+//  - For the two writing gates: the password, when one is set. Wrong passwords
+//    draw on one device-wide budget (web_auth_throttle.h). Once it is spent,
+//    nothing is checked until it refills or the password is saved again on
+//    the device.
 //
 // FilaMan's device protocol is a different case. It is driven from a server,
 // not a browser, and had no check at all: anything on the LAN could start a
@@ -119,7 +129,8 @@ enum WebVerdict : uint8_t {
   WEB_BAD_HOST,      // Host header is not one of our names
   WEB_BAD_ORIGIN,    // a browser's cross-site POST
   WEB_GATE_SHUT,     // the switch on the device is off
-  WEB_NEED_AUTH      // password set, none or a wrong one sent
+  WEB_NEED_AUTH,     // password set, none or a wrong one sent
+  WEB_LOCKED        // too many wrong passwords: nothing is checked until the budget refills
 };
 
 static void lowerTrim(String &s) {
@@ -162,23 +173,24 @@ static bool originIsOurs(const String &origin) {
 
 // "Authorization: Basic base64(user:password)". The user name is not looked
 // at: the device has one password and no accounts.
-static bool passwordOk(WebServer &srv) {
+static bool presentedPassword(WebServer &srv, char out[WEB_AUTH_PW_MAX + 1]) {
   if (!srv.hasHeader("Authorization")) return false;
   String a = srv.header("Authorization");
   a.trim();
   if (!a.startsWith("Basic ")) return false;
   a = a.substring(6);
   a.trim();
-  unsigned char out[64];
+  unsigned char buf[WEB_AUTH_PW_MAX + 1];
   size_t olen = 0;
-  if (mbedtls_base64_decode(out, sizeof(out) - 1, &olen,
+  if (mbedtls_base64_decode(buf, sizeof(buf) - 1, &olen,
                             (const unsigned char *)a.c_str(), a.length()) != 0) {
     return false;
   }
-  out[olen] = '\0';
-  const char *colon = strchr((const char *)out, ':');
-  const char *pw = colon ? colon + 1 : (const char *)out;
-  return strcmp(pw, s_pass) == 0;
+  buf[olen] = '\0';
+  const char *colon = strchr((const char *)buf, ':');
+  const char *pw = colon ? colon + 1 : (const char *)buf;
+  snprintf(out, WEB_AUTH_PW_MAX + 1, "%s", pw);
+  return true;
 }
 
 // "Authorization: Device <token>", the same token the scale sends FilaMan on
@@ -255,8 +267,20 @@ static WebVerdict verdict(WebServer &srv, WebGate g) {
     return WEB_BAD_ORIGIN;
   }
   if (!webGateOpen(g)) return WEB_GATE_SHUT;
-  if (g >= GATE_CONFIG && webHasPassword() && !passwordOk(srv)) return WEB_NEED_AUTH;
-  return WEB_OK;
+  if (g < GATE_CONFIG || !webHasPassword()) return WEB_OK;
+  const uint32_t now = (uint32_t)millis();
+  const bool had_budget = webAuthRetryMs(s_auth, now) == 0;
+  char pw[WEB_AUTH_PW_MAX + 1];
+  switch (webAuthCheck(s_auth, presentedPassword(srv, pw) ? pw : nullptr, s_pass, now)) {
+    case WEB_AUTH_OK:  return WEB_OK;
+    case WEB_AUTH_ASK: return WEB_NEED_AUTH;
+    case WEB_AUTH_LOCKED:
+      if (had_budget) logSDf("Web: password locked for %lu s after wrong attempts, last from %s",
+                             (unsigned long)(webAuthRetryMs(s_auth, now) / 1000UL),
+                             srv.client().remoteIP().toString().c_str());
+      return WEB_LOCKED;
+  }
+  return WEB_NEED_AUTH;
 }
 
 bool webAllowed(WebServer &srv, WebGate g) {
@@ -319,6 +343,26 @@ bool webRequire(WebServer &srv, WebGate g, const char *what) {
         sendTinyPage(srv, 401, T(STR_W_R_PASSWORD), b);
       }
       return false;
+    case WEB_LOCKED: {
+      logRefusal(srv, "password locked");
+      unsigned int secs = (webAuthRetryMs(s_auth, (uint32_t)millis()) + 999) / 1000;
+      if (secs < 1) secs = 1;
+      const unsigned int mins = (secs + 59) / 60;
+      char msg[200];
+      snprintf(msg, sizeof(msg), T(STR_W_AUTH_LOCKED), mins);
+      srv.sendHeader("Retry-After", String(secs));
+      // No challenge: it would make the browser re-prompt in a loop while
+      // nothing can be checked.
+      if (api) {
+        srv.send(429, "text/plain; charset=utf-8", msg);
+      } else {
+        String b = F("<p>");
+        b += msg;
+        b += F("</p>");
+        sendTinyPage(srv, 429, T(STR_W_R_PASSWORD), b);
+      }
+      return false;
+    }
   }
   return false;
 }

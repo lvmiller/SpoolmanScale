@@ -22,10 +22,11 @@ lv_obj_t *scr_web = nullptr;
 // The password numpad and what has been typed into it so far.
 static lv_obj_t *s_pin_scr = nullptr;
 static lv_obj_t *s_pin_lbl = nullptr;
+static lv_obj_t *s_pin_hint = nullptr;
 static char      s_pin[WEB_PASS_MAX + 1] = "";
 
 void webPinScreenHide()  { if (s_pin_scr) lv_obj_add_flag(s_pin_scr, LV_OBJ_FLAG_HIDDEN); }
-void webPinScreenClose() { releaseScreen(&s_pin_scr); s_pin_lbl = nullptr; }
+void webPinScreenClose() { releaseScreen(&s_pin_scr); s_pin_lbl = nullptr; s_pin_hint = nullptr; }
 
 static void rebuild();
 
@@ -50,15 +51,15 @@ static void buildWebPinScreen() {
     rebuild();
   });
 
-  lv_obj_t *hint = lv_label_create(s_pin_scr);
+  s_pin_hint = lv_label_create(s_pin_scr);
   { char hb[96];
     copyT(hb, sizeof(hb), STR_WEB_PASS_HINT);
-    lv_label_set_text(hint, hb); }
-  lv_obj_set_style_text_color(hint, lv_color_hex(UI_COL_CAPTION), 0);
-  lv_obj_set_style_text_font(hint, &lv_font_montserrat_ext_12, 0);
-  lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_width(hint, 464);
-  lv_obj_set_pos(hint, 8, 58);
+    lv_label_set_text(s_pin_hint, hb); }
+  lv_obj_set_style_text_color(s_pin_hint, lv_color_hex(UI_COL_CAPTION), 0);
+  lv_obj_set_style_text_font(s_pin_hint, &lv_font_montserrat_ext_12, 0);
+  lv_obj_set_style_text_align(s_pin_hint, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_width(s_pin_hint, 464);
+  lv_obj_set_pos(s_pin_hint, 8, 58);
 
   lv_obj_t *val_box = lv_obj_create(s_pin_scr);
   lv_obj_set_size(val_box, 380, 40);
@@ -108,10 +109,14 @@ static void buildWebPinScreen() {
       if (strcmp(k, "DEL") == 0) {
         if (len) s_pin[len - 1] = '\0';
       } else if (strcmp(k, "OK") == 0) {
-        // Empty removes the password; too short counts as empty, and
-        // webSetPassword() says so in the log. NVS write from a callback is
-        // the pattern every settings row here follows - one small key.
-        webSetPassword(s_pin);
+        // Empty removes the password; 1 to 5 digits are refused and the hint
+        // turns red, so a short entry never silently drops an existing lock.
+        // Saving also lifts a wrong-password lock.
+        if (!webSetPassword(s_pin)) {
+          logSD("BTN: Web password too short, not saved");
+          if (s_pin_hint) lv_obj_set_style_text_color(s_pin_hint, lv_color_hex(UI_COL_BAD), 0);
+          return;
+        }
         webPinScreenClose();
         rebuild();
         return;

@@ -45,6 +45,8 @@ jobs:
         run: python3 test/test_spool_start.py
       - name: Test catalog read limit
         run: python3 test/test_fdb_read_limit.py
+      - name: Test web password throttle
+        run: python3 test/test_web_auth_throttle.py
 
   build:
     name: Build ${{ matrix.env }}

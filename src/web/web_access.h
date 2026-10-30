@@ -41,10 +41,16 @@ bool webGateOpen(WebGate g);
 // asked for by the browser as HTTP Basic auth (any user name). Empty means no
 // password, and the status page says so. Digits only, because the device has
 // a numpad and nothing else to type it with.
-#define WEB_PASS_MIN  4
+#define WEB_PASS_MIN  6
 #define WEB_PASS_MAX  8
+// A stored password from older firmware with 4 or 5 digits keeps working
+// until it is changed.
+#define WEB_PASS_LEGACY_MIN  4
 bool webHasPassword();
-void webSetPassword(const char *digits);
+// Empty removes the password; 1 to WEB_PASS_MIN-1 digits are refused (false,
+// nothing changes). Any accepted save refills the wrong-password budget:
+// the on-device way out of a lock.
+bool webSetPassword(const char *digits);
 
 // The same verdict webRequire() reaches, without answering. For the one
 // handler that runs before there is a reply to give: the upload chunk
