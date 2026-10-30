@@ -67,8 +67,11 @@ static void configureServer() {
   if (!s_tickets_attempted) {
     s_tickets_attempted = true;
     const esp_err_t err = esp_tls_cfg_server_session_tickets_init(&s_cfg);
-    if (err != ESP_OK)
+    if (err != ESP_OK) {
+      // IDF frees a failed context without clearing the caller's pointer.
+      s_cfg.ticket_ctx = nullptr;
       logSDf("Web: TLS session tickets unavailable (%s)", esp_err_to_name(err));
+    }
   }
 }
 

@@ -13,6 +13,7 @@ headers = {
 #include <memory>
 #include <unistd.h>
 extern uint32_t nowMs;
+extern bool ciphertext;
 inline uint32_t millis() { return nowMs; }
 inline void delay(unsigned n) {nowMs+=n;}
 class NetworkClient {
@@ -22,7 +23,7 @@ class NetworkClient {
   NetworkClient() = default;
   explicit NetworkClient(int fd):h(new Handle{fd}) {}
   virtual ~NetworkClient() = default;
-  virtual int available() {return 0;}
+  virtual int available() {return ciphertext?1:0;}
   virtual int read() {return -1;}
   virtual int read(uint8_t *,size_t) {return 0;}
   virtual int peek() {return -1;}
@@ -51,7 +52,11 @@ extern bool eof, stalled, initFail, handshakeFail;
 extern int sessions;
 inline esp_tls_t *esp_tls_init() {++sessions; return new esp_tls_t;}
 inline int esp_tls_server_session_init(esp_tls_cfg_server_t *,int,esp_tls_t *) {return initFail?-1:0;}
-inline int esp_tls_server_session_continue_async(esp_tls_t *t) {return handshakeFail?-123:(++t->hs<3?ESP_TLS_ERR_SSL_WANT_READ:0);}
+inline int esp_tls_server_session_continue_async(esp_tls_t *t) {
+  if(handshakeFail)return -123;
+  if(!ciphertext && t->hs==0)return ESP_TLS_ERR_SSL_WANT_READ;
+  return ++t->hs<3?ESP_TLS_ERR_SSL_WANT_READ:0;
+}
 inline void esp_tls_server_session_delete(esp_tls_t *t) {--sessions; delete t;}
 inline void *esp_tls_get_ssl_context(esp_tls_t *t) {return &t->ssl;}
 inline int esp_tls_get_bytes_avail(esp_tls_t *) {return 0;} // Ciphertext may still be waiting for a read.
@@ -74,6 +79,7 @@ source = r'''
 #include <cstdio>
 std::string input, output;
 bool eof=false, stalled=false, initFail=false, handshakeFail=false;
+bool ciphertext=true;
 int sessions=0;
 uint32_t nowMs=0;
 int main() {
@@ -83,13 +89,19 @@ int main() {
   assert(c.read(buf,sizeof(buf))==-1);
   assert(c.begin(NetworkClient(open("/dev/null",O_RDONLY)),&cfg));
   assert(fcntl(c.fd(),F_GETFL)&O_NONBLOCK);
-  assert(c.handshakeStep()==0 && c.handshakeStep()==0 && c.handshakeStep()==1);
+  ciphertext=false;
+  assert(c.handshakeStep()==0 && !c.handshakeStarted());
+  ciphertext=true;
+  assert(c.handshakeStep()==0 && c.handshakeStarted());
+  ciphertext=false; // WANT_READ must not turn an active handshake back into a spare.
+  assert(c.handshakeStep()==0 && c.handshakeStarted() && c.handshakeStep()==1);
+  ciphertext=true;
   assert(c.read(buf,sizeof(buf))==0 && c.read()==-1 && c.peek()==-1);
   input="abc";
   assert(c.available()==3 && c.peek()=='a'); c.clear();
   assert(c.read()=='a' && c.read(buf,sizeof(buf))==2);
   assert(buf[0]=='b' && buf[1]=='c');
-  c.stop(); assert(sessions==0 && c.fd()==-1 && !c.connected());
+  c.stop(); assert(sessions==0 && c.fd()==-1 && !c.connected() && !c.handshakeStarted());
   input.resize(3600000);
   for(size_t i=0;i<input.size();++i) input[i]=char(i%251);
   assert(c.begin(NetworkClient(open("/dev/null",O_RDONLY)),&cfg));

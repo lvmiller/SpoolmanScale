@@ -23,6 +23,7 @@ class String : public std::string {
  void trim(){auto a=find_first_not_of(" \t\r\n"); if(a==npos){clear();return;} *this=substr(a,find_last_not_of(" \t\r\n")-a+1);}
  void toLowerCase(){for(char &c:*this)c=std::tolower((unsigned char)c);}
  bool concat(char c){push_back(c);return true;}
+ bool startsWith(const char *s)const{return rfind(s,0)==0;}
 };
 extern uint32_t nowMs;
 inline uint32_t millis(){return nowMs;}
@@ -31,13 +32,14 @@ inline void yield(){++nowMs;}
 #define WEBSERVER_MAX_LINE_LEN 8192
 class NetworkClient {
  public:
- std::string wire; size_t pos=0;
+ std::string wire; size_t pos=0; bool open=true;
  virtual ~NetworkClient()=default;
  virtual int read(){return pos<wire.size()?(unsigned char)wire[pos++]:-1;}
  virtual int read(uint8_t *b,size_t n){size_t i=0;for(;i<n && pos<wire.size();++i)b[i]=wire[pos++];return int(i);}
  virtual int peek(){return pos<wire.size()?(unsigned char)wire[pos]:-1;}
  virtual int available(){return int(wire.size()-pos);}
- virtual uint8_t connected(){return 1;}
+ virtual uint8_t connected(){return open;}
+ uint32_t getTimeout()const{return 1000;}
  virtual size_t write(uint8_t){return 1;}
  virtual size_t write(const uint8_t*,size_t n){return n;}
  virtual void stop(){}
@@ -87,6 +89,10 @@ int main(){
    assert(s.status==302);
    assert(s.headers["Location"]==(s.host==" SCALE.LOCAL:80 "?"https://scale.local/backend":"https://192.0.2.5/backend"));
  }
+ for(auto path:{"@evil.example/","https://evil.example/","*",""}){
+   WebServer s;s.path=path;registerPlainHttpRoutes(s);s.handler();
+   assert(s.status==400 && !s.headers.count("Location"));
+ }
  for(auto method:{HTTP_POST,HTTP_PUT,HTTP_PATCH,HTTP_DELETE,HTTP_OPTIONS,HTTP_ANY}){
    WebServer s;s.verb=method;registerPlainHttpRoutes(s);s.handler();
    assert(s.status==403 && !s.headers.count("WWW-Authenticate") && !s.headers.count("Location"));
@@ -106,7 +112,13 @@ int main(){
    assert(headers.rfind(protocol?"POST ":"GET ",0)==0);
    assert(client.method()==HTTP_POST);
  }
- NetworkClient silent; WebPlainHttpClient waiting(silent);assert(!waiting.begin() && nowMs<=5001);
+ for(auto start:{uint32_t(0),UINT32_MAX-500}){
+   nowMs=start;NetworkClient silent;silent.wire="GET /";
+   WebPlainHttpClient waiting(silent);
+   assert(!waiting.begin() && uint32_t(nowMs-start)<=waiting.getTimeout());
+ }
+ nowMs=0;NetworkClient closed;closed.wire="POST /";closed.open=false;
+ WebPlainHttpClient gone(closed);assert(!gone.begin() && nowMs==0);
  puts("plain HTTP: local redirects, refusal precedence, no challenge and body isolation passed");
 }
 '''

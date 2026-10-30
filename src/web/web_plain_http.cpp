@@ -8,9 +8,16 @@
 
 bool WebPlainHttpClient::begin() {
   const uint32_t start = millis();
-  while ((uint32_t)(millis() - start) < HTTP_MAX_DATA_WAIT) {
+  uint32_t lastData = start;
+  while ((uint32_t)(millis() - start) < HTTP_MAX_DATA_WAIT &&
+         (uint32_t)(millis() - lastData) < getTimeout()) {
     const int c = _tcp.read();
-    if (c < 0) { yield(); continue; }
+    if (c < 0) {
+      if (!_tcp.connected()) return false;
+      yield();
+      continue;
+    }
+    lastData = millis();
     if (_line.length() >= WEBSERVER_MAX_LINE_LEN || !_line.concat((char)c)) return false;
     if (c != '\n') continue;
     const int first = _line.indexOf(' ');
@@ -60,6 +67,11 @@ void registerPlainHttpRoutes(WebServer &srv) {
       srv.send(403, "text/plain; charset=utf-8", T(STR_W_HTTPS_ONLY));
       return;
     }
+    const String path = srv.uri();
+    if (!path.startsWith("/")) {
+      srv.send(400, "text/plain", "Bad Request");
+      return;
+    }
     String host = srv.hostHeader();
     const int colon = host.indexOf(':');
     if (colon >= 0) host = host.substring(0, colon);
@@ -67,7 +79,7 @@ void registerPlainHttpRoutes(WebServer &srv) {
     host.toLowerCase();
     if (!host.length() || !webHostIsOurs(host)) host = wifiManagerLocalIP().toString();
     // Deliberately omit the query, which may carry old plaintext credentials.
-    srv.sendHeader("Location", "https://" + host + srv.uri());
+    srv.sendHeader("Location", "https://" + host + path);
     srv.send(302, "text/plain", "");
   });
 }

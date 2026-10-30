@@ -29,6 +29,15 @@ bool WebTlsClient::begin(NetworkClient tcp, esp_tls_cfg_server_t *cfg) {
 
 int WebTlsClient::handshakeStep() {
   if (!_tls || _failed) return -1;
+  if (!_handshakeStarted) {
+    // Distinguish a TCP-only preconnect from an in-flight TLS handshake.
+    if (_tcp.available() <= 0) {
+      if (_tcp.connected()) return 0;
+      _failed = true;
+      return -1;
+    }
+    _handshakeStarted = true;
+  }
   const int ret = esp_tls_server_session_continue_async(_tls);
   if (ret == 0) return 1;
   if (ret == ESP_TLS_ERR_SSL_WANT_READ || ret == ESP_TLS_ERR_SSL_WANT_WRITE) return 0;
@@ -111,4 +120,5 @@ void WebTlsClient::stop() {
   _tcp.stop();
   _rxPos = _rxLen = 0;
   _failed = false;
+  _handshakeStarted = false;
 }

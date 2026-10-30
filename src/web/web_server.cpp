@@ -38,6 +38,9 @@
 // within milliseconds on a LAN; a second is patience enough.
 #define WEB_IDLE_CLIENT_MS 1000
 #define WEB_TLS_HANDSHAKE_MS 2000
+// A Finished record (or TCP accept) precedes the first peer data by an RTT.
+// Let that data arrive before a queued connection preempts this one.
+#define WEB_TLS_FIRST_DATA_MS 250
 
 // The library's one-client flow with a short idle wait and an optional TLS
 // transport. All response bytes go through the virtual write hooks.
@@ -181,7 +184,12 @@ class ScaleWebServer : public WebServer {
         _statusChange = millis();
         return;
       }
-      if (result == 0 && millis() - _statusChange <= WEB_TLS_HANDSHAKE_MS) return;
+      const uint32_t elapsed = millis() - _statusChange;
+      const bool waiting = _tlsClient.handshakeStarted()
+        ? elapsed <= WEB_TLS_HANDSHAKE_MS
+        : elapsed <= WEB_IDLE_CLIENT_MS &&
+          (elapsed < WEB_TLS_FIRST_DATA_MS || !_server.hasClient());
+      if (result == 0 && waiting) return;
       if (result < 0)
         logSDf("[verbose] web: tls handshake failed (-0x%04X) from %s", (unsigned)-result,
                _tlsClient.remoteIP().toString().c_str());
@@ -206,7 +214,9 @@ class ScaleWebServer : public WebServer {
                    _tlsClient.remoteIP().toString().c_str(), (unsigned)took);
         }
       } else {
-        keep = millis() - _statusChange <= WEB_IDLE_CLIENT_MS && !_server.hasClient();
+        const uint32_t elapsed = millis() - _statusChange;
+        keep = elapsed <= WEB_IDLE_CLIENT_MS &&
+               (elapsed < WEB_TLS_FIRST_DATA_MS || !_server.hasClient());
         callYield = true;
       }
     }

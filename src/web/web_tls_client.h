@@ -14,6 +14,7 @@ class WebTlsClient : public NetworkClient {
   bool begin(NetworkClient tcp, esp_tls_cfg_server_t *cfg);
   // One non-blocking step: 1 done, 0 waiting, negative error.
   int handshakeStep();
+  bool handshakeStarted() const { return _handshakeStarted; }
   int available() override;
   int read() override;
   int read(uint8_t *buf, size_t size) override;
@@ -29,6 +30,7 @@ class WebTlsClient : public NetworkClient {
   NetworkClient _tcp;
   esp_tls_t *_tls = nullptr;
   bool _failed = false;
+  bool _handshakeStarted = false;
   uint8_t _rx[1024];
   uint16_t _rxPos = 0, _rxLen = 0;
 };
