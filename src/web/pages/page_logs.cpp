@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <WebServer.h>
+#include <esp_heap_caps.h>
 
 #include "app/app_state.h"
 #include "app/render_bench.h"
@@ -18,7 +19,7 @@
 // parameter, so lang.h has to come after anything that pulls it in.
 #include "lang.h"
 
-// One TCP segment of log lines, see /api/log/session.
+// Bounded SD reads on the loop task's stack.
 #define WEB_LOG_BLOCK_BYTES 1400
 
 static const char* label() { return T(STR_W_NAV_LOGS); }
@@ -26,11 +27,16 @@ static const char* label() { return T(STR_W_NAV_LOGS); }
 // Lines leave the ring in chunks rather than one String: two megabytes of log
 // would not fit on the internal heap this handler runs on.
 #define RING_OUT_CHUNK 1024
-struct RingOut { WebServer *srv; String buf; };
+struct RingOut { WebServer *srv; String buf; size_t left; };
+static void ringCountLine(const char *line, void *ctx) {
+  *(size_t *)ctx += strlen(line) + 1;
+}
 static void ringOutLine(const char *line, void *ctx) {
   RingOut *out = (RingOut *)ctx;
-  out->buf += line;
-  out->buf += '\n';
+  const size_t n = std::min(strlen(line), out->left);
+  out->buf.concat(line, n);
+  out->left -= n;
+  if (out->left) { out->buf += '\n'; --out->left; }
   if (out->buf.length() >= RING_OUT_CHUNK) {
     out->srv->sendContent(out->buf);
     out->buf = "";
@@ -357,22 +363,24 @@ static void routes(WebServer &srv) {
   // GET /log?file=<filename> -> serve log file content
   srv.on("/api/log", HTTP_GET, [&srv]() {
     if (!webRequire(srv, GATE_MAINT, T(STR_W_NAV_LOGS))) return;
-    // The ring in flash has no file name, so it is asked for by source alone
-    // and streamed the way the session log is: it can be two megabytes, and
-    // this handler runs on the internal heap.
+    // The ring in flash has no file name and can be two megabytes, so only
+    // one bounded output block lives on the heap at a time.
     if (srv.arg("src") == "int") {
       if (!flashLogAvailable()) { srv.send(404, "text/plain", "No internal storage"); return; }
       if (srv.hasArg("dl")) {
         srv.sendHeader("Content-Disposition",
                        "attachment; filename=\"spoolmanscale-internal.txt\"");
       }
-      srv.setContentLength(CONTENT_LENGTH_UNKNOWN);
+      // Only the loop task writes the ring and it also runs this handler:
+      // both passes see the same lines. The cap also prevents an oversized body.
+      size_t count = 0;
+      flashLogEmit(ringCountLine, &count);
+      srv.setContentLength(count);
       srv.send(200, "text/plain", "");
-      RingOut out{&srv, String()};
+      RingOut out{&srv, String(), count};
       out.buf.reserve(RING_OUT_CHUNK + 256);
       flashLogEmit(ringOutLine, &out);
       if (out.buf.length()) srv.sendContent(out.buf);
-      srv.sendContent("");
       return;
     }
     if (!sd_available) { srv.send(404, "text/plain", "No SD card"); return; }
@@ -397,13 +405,22 @@ static void routes(WebServer &srv) {
     // it in the browser and saving it. text/plain renders inline everywhere,
     // so without this there is no way to get the file out of the device - the
     // download used to be a `download` attribute on the link and fell out with
-    // the 720px rebuild. sendHeader() before streamFile() is honoured, the
-    // same order the session route uses for X-Log-Seq below.
+    // the 720px rebuild. Response headers precede the body, the same order
+    // the session route uses for X-Log-Seq below.
     if (srv.hasArg("dl")) {
       srv.sendHeader("Content-Disposition",
                      "attachment; filename=\"" + fname + "\"");
     }
-    srv.streamFile(f, "text/plain");
+    size_t left = f.size();
+    srv.setContentLength(left);
+    srv.send(200, "text/plain", "");
+    uint8_t buf[WEB_LOG_BLOCK_BYTES];
+    while (left) {
+      const int n = f.read(buf, std::min(left, sizeof(buf)));
+      if (n <= 0) break;
+      srv.sendContent((const char *)buf, (size_t)n);
+      left -= (size_t)n;
+    }
     f.close();
   });
 
@@ -482,8 +499,8 @@ static void routes(WebServer &srv) {
     srv.send(200, "application/json", String("{\"deleted\":") + deleted + "}");
   });
 
-  // The ring buffer, oldest line first. Streamed rather than built into one
-  // String: 240 lines is 38 kB, and this handler runs on the internal heap.
+  // The ring buffer, oldest line first. Render in PSRAM so the whole reply
+  // has a declared length and its body goes out in one write.
   srv.on("/api/log/session", HTTP_GET, [&srv]() {
     if (!webRequire(srv, GATE_MAINT, T(STR_W_NAV_LOGS))) return;
     // A reader that says where it got to is sent only what came after, which
@@ -501,15 +518,12 @@ static void routes(WebServer &srv) {
 
     srv.sendHeader("X-Log-Seq", String(seq));
     srv.sendHeader("X-Log-Reset", (!have_since || stale) ? "1" : "0");
-    srv.setContentLength(CONTENT_LENGTH_UNKNOWN);
-    srv.send(200, "text/plain", "");
-    // Lines go out in blocks rather than one chunk each. A chunk is three
-    // writes to the socket, and with Nagle off each is a packet of its own:
-    // 30 lines were 90 packets and held the loop for 300 to 400 ms on core 3
-    // (24.09.2026), every time the log page polled.
+    if (since >= seq) { srv.send(200, "text/plain", ""); return; }
     char line[176], out[200];
-    char block[WEB_LOG_BLOCK_BYTES];
-    size_t block_len = 0;
+    char *buf = (char *)heap_caps_malloc((size_t)(seq - since) * sizeof(out) + 1,
+                                        MALLOC_CAP_SPIRAM);
+    if (!buf) { srv.send(503, "text/plain", "out of memory"); return; }
+    size_t used = 0;
     for (uint32_t q = since; q < seq; q++) {
       time_t when = 0;
       uint32_t up = 0;
@@ -529,15 +543,13 @@ static void routes(WebServer &srv) {
       }
       const int n = snprintf(out, sizeof(out), "[%s] %s\n", stamp, line);
       const size_t len = (n < 0) ? 0 : ((size_t)n < sizeof(out) ? (size_t)n : sizeof(out) - 1);
-      if (block_len + len > sizeof(block)) {
-        srv.sendContent(block, block_len);
-        block_len = 0;
-      }
-      memcpy(block + block_len, out, len);
-      block_len += len;
+      memcpy(buf + used, out, len);
+      used += len;
     }
-    if (block_len) srv.sendContent(block, block_len);
-    srv.sendContent("");
+    srv.setContentLength(used);
+    srv.send(200, "text/plain", "");
+    srv.sendContent(buf, used);
+    heap_caps_free(buf);
   });
 
   // POST /api/logdest?d=0|1|2 -> off, SD card, internal
